@@ -12,7 +12,7 @@
 <p align="center">
   <a href="#product-flow">Product flow</a> ·
   <a href="#local-setup">Run locally</a> ·
-  <a href="#replit-deployment">Deploy to Replit</a> ·
+  <a href="#vercel-deployment">Deploy to Vercel</a> ·
   <a href="docs/architecture.md">Architecture</a>
 </p>
 
@@ -20,7 +20,7 @@
   <img src="https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white" alt="Python 3.12+" />
   <img src="https://img.shields.io/badge/React-TypeScript-149ECA?logo=react&logoColor=white" alt="React and TypeScript" />
   <img src="https://img.shields.io/badge/backend%20tests-335%20passing-1E6B52" alt="335 backend tests passing" />
-  <img src="https://img.shields.io/badge/deploy-Replit%20Ready-F2A541" alt="Replit ready" />
+  <img src="https://img.shields.io/badge/deploy-Vercel%20Ready-000000?logo=vercel" alt="Vercel ready" />
 </p>
 
 <details>
@@ -31,7 +31,7 @@
 - [Recommended stack](#recommended-stack)
 - [Explore the product](#explore-the-product)
 - [Local setup](#local-setup)
-- [Replit deployment](#replit-deployment)
+- [Vercel deployment](#vercel-deployment)
 - [API surface](#api-surface)
 - [Configuration and secrets](#configuration-and-secrets)
 - [Validation](#validation)
@@ -43,7 +43,7 @@ Production-ready foundation for a channel-agnostic lead qualification, explainab
 
 > **Corral is a human-approved lead intelligence workspace.** It brings web, email, CRM, and social inquiries into one explainable pipeline, then helps teams route, review, and follow up without losing the decision history.
 
-**Quick links:** [Product flow](#product-flow) · [Local setup](#local-setup) · [Replit deployment](#replit-deployment) · [API surface](#api-surface) · [Security](#configuration-and-secrets) · [Architecture](docs/architecture.md)
+**Quick links:** [Product flow](#product-flow) · [Local setup](#local-setup) · [Vercel deployment](#vercel-deployment) · [API surface](#api-surface) · [Security](#configuration-and-secrets) · [Architecture](docs/architecture.md)
 
 ## Product flow
 
@@ -134,7 +134,7 @@ Corral is a modular monolith for v1: one API, one worker boundary, one dashboard
 - **Explainable by default:** qualification scores, routing reasons, provider attempts, and pipeline history remain inspectable.
 - **Human-controlled outreach:** the system can draft a follow-up, but a person reviews and sends it.
 - **Workspace isolation:** credentials, ICP versions, routing rules, templates, and audit records are scoped to the active workspace.
-- **Deployment-friendly:** the same repository supports local Docker development and a single-origin Replit Reserved VM deployment.
+- **Deployment-friendly:** the same repository supports local Docker development and a single-origin Vercel deployment.
 
 ## Local setup
 
@@ -168,41 +168,20 @@ npm.cmd run dev
 
 Open <http://localhost:5173>. API documentation is available at <http://localhost:8001/docs>.
 
-## Replit deployment
+## Vercel deployment
 
-### Short answer
+Vercel builds the Vite dashboard as static output and invokes the FastAPI application through
+`api/index.py`. `vercel.json` rewrites API, health, and OpenAPI requests to that Python Function;
+the dashboard and API therefore share one HTTPS origin.
 
-**Yes. Importing this GitHub repository into Replit is the intended deployment path.** The repository already includes the root `.replit` configuration, a reproducible build script, a production start script, backend/frontend deployment files, and migrations.
+1. Link this repository to the existing `corral-preview` Vercel project.
+2. Provision durable PostgreSQL, TLS Redis, and a private Vercel Blob store; SQLite and local files are not production storage.
+3. Add the production variables from `.env.example`, including `CRON_SECRET`, Blob credentials, database/Redis URLs, managed-secret configuration, and provider OAuth credentials.
+4. Set `FRONTEND_PUBLIC_BASE_URL`, `INTEGRATION_PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` to the production HTTPS origin.
+5. Run Alembic migrations as a controlled release step, then deploy.
+6. Confirm `/health/live`, `/health/ready`, authenticated API access, a private attachment upload, and the Vercel Cron invocation.
 
-The important caveat is that GitHub import only prepares the Repl. The production process deliberately refuses to start until its durable services and secrets are configured. That is a safety feature, not a broken build.
-
-### What Replit runs automatically
-
-This repository is structured for direct Replit import. Replit reads the root
-`.replit` file, runs `bash scripts/replit_build.sh` once for the build, and
-starts `bash scripts/replit_start.sh` for a Reserved VM web deployment.
-
-1. `scripts/replit_build.sh` installs the backend package, runs `npm ci`, and builds the Vite dashboard.
-2. `scripts/replit_start.sh` reads Replit’s `PORT`, binds the API to `0.0.0.0`, applies Alembic migrations, checks PostgreSQL and Redis, and serves the built dashboard and API from one origin.
-3. The runtime supervises FastAPI/Uvicorn, one Celery worker, and one Celery beat scheduler.
-
-### Replit publish checklist
-
-1. Import `https://github.com/Harmain11/lead-qualification-routing-agent` into Replit.
-2. Use **Reserved VM → Web server** for publishing. The background worker and beat scheduler must stay alive.
-3. Provision durable PostgreSQL and managed Redis. SQLite and an ephemeral local Redis are not production storage.
-4. Add the production secrets listed in [`docs/phase-7f-replit-production-deployment.md`](docs/phase-7f-replit-production-deployment.md). At minimum, configure the database, Redis, production security keys, managed secret backend, and OAuth credentials for the providers you will use.
-5. Publish once to obtain the stable HTTPS origin.
-6. Set `FRONTEND_PUBLIC_BASE_URL`, `INTEGRATION_PUBLIC_BASE_URL`, and `CORS_ALLOWED_ORIGINS` to that exact HTTPS origin.
-7. Add the provider callback URLs from the deployment guide to Google, Slack, Salesforce, and HubSpot consoles.
-8. Confirm `/health/live` returns `200`, then confirm `/health/ready` after PostgreSQL and Redis are reachable.
-9. Run one controlled intake → qualification → routing → notification smoke test before inviting users.
-
-The deployed app should use one origin such as `https://your-app.replit.app`. Do not upload `.env`, local SQLite databases, runtime logs, `frontend/.env.local`, npm caches, or Remotion renders as deployment configuration.
-
-For the full secret list, encryption-key rotation guidance, database/Redis
-requirements, callback patterns, health checks, and rollback procedure, use the
-dedicated [Replit production deployment guide](docs/phase-7f-replit-production-deployment.md).
+Vercel Cron invokes `/v1/internal/cron` every five minutes and executes due CRM synchronization and communication reminders within the Function. No Replit process, persistent worker, or Beat scheduler is required.
 
 If `uv` is unavailable, use `python -m venv .venv`, activate it, install with `python -m pip install -e "backend[dev]"`, set `$env:PYTHONPATH = "$pwd\backend\src"`, and run the equivalent commands from that environment.
 
@@ -268,7 +247,7 @@ See [`docs/implementation-plan.md`](docs/implementation-plan.md), [`docs/archite
 | [`docs/requirements.md`](docs/requirements.md) | Product requirements and acceptance criteria |
 | [`docs/implementation-plan.md`](docs/implementation-plan.md) | Delivery phases and engineering work breakdown |
 | [`docs/integrations.md`](docs/integrations.md) | Provider setup, directionality, scopes, and failure handling |
-| [`docs/phase-7f-replit-production-deployment.md`](docs/phase-7f-replit-production-deployment.md) | Replit services, secrets, callbacks, smoke tests, and rollback |
+| [`docs/production-deployment.md`](docs/production-deployment.md) | Vercel services, secrets, callbacks, smoke tests, and rollback |
 
 The original build plan is preserved in [`doc/Lead Qualification & Routing Agent — Build Plan.docx`](<doc/Lead Qualification & Routing Agent — Build Plan.docx>).
 

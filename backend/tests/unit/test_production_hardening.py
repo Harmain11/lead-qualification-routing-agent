@@ -34,6 +34,7 @@ def production_settings(**overrides: object) -> Settings:
         "auth_cookie_secure": True,
         "secret_key": "s" * 48,
         "webhook_signing_secret": "w" * 48,
+        "cron_secret": "c" * 48,
         "secret_store_provider": "managed",
         "managed_secret_store_backend": "deployment.secrets:create_backend",
         "oauth_broker": "provider",
@@ -275,9 +276,7 @@ def test_oauth_without_expiry_uses_shared_refresh_lifetime(tmp_path) -> None:
             broker,
             "actor-one",
         )
-        expires_at = datetime.fromisoformat(
-            str(completed.connection_metadata["token_expires_at"])
-        )
+        expires_at = datetime.fromisoformat(str(completed.connection_metadata["token_expires_at"]))
         remaining = (expires_at - datetime.now(UTC)).total_seconds()
         assert 3590 <= remaining <= 3600
         assert completed.connection_metadata["refresh_available"] is True

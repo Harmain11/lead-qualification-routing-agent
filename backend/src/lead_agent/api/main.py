@@ -10,8 +10,10 @@ from lead_agent.api.middleware import install_request_middleware
 from lead_agent.api.routes import (
     analytics,
     auth,
+    communication,
     crm,
     crm_inbound,
+    cron,
     email_templates,
     follow_up,
     health,
@@ -53,6 +55,8 @@ app.add_middleware(
 install_request_middleware(app, settings)
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(communication.router)
+app.include_router(cron.router)
 app.include_router(routing.config_router)
 app.include_router(routing.router)
 app.include_router(leads.router)

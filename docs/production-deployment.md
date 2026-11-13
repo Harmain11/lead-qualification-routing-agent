@@ -49,6 +49,20 @@ Set `APP_ENV=production`, `LOG_FORMAT=json`, `AUTH_DEVELOPMENT_FALLBACK=false`, 
 
 Before deployment, run `uv run --project backend production-check`. It validates configuration and never prints values. It does not connect to infrastructure; readiness checks dependency connectivity after startup. Run Alembic migrations as a separately controlled release step. The managed secret backend must be resolvable by the API and any worker before requests are accepted.
 
+## Workspace Communication media
+
+Workspace Communication attachments and voice messages use a **private Vercel Blob** store. Connect a
+private store to the Vercel project before enabling uploads. The runtime must receive either the
+connected store's `BLOB_READ_WRITE_TOKEN`, or Vercel OIDC credentials (`BLOB_STORE_ID` and
+`VERCEL_OIDC_TOKEN`). Do not expose either value through `VITE_*` variables. Media is always fetched
+through the authenticated API route, which rechecks workspace and conversation membership before
+streaming it to a browser.
+
+Vercel Functions cap request bodies at 4.5 MB, so `COMMUNICATION_ATTACHMENT_MAX_BYTES` defaults to
+4 MiB. Larger media needs a direct-to-Blob client-upload endpoint. Vercel Cron calls the authenticated
+`/v1/internal/cron` endpoint every five minutes; set a random 32+ character `CRON_SECRET` so due CRM
+syncs and communication reminders run without a persistent worker or Beat process.
+
 For cloud-neutral staging or provider certification, set
 `MANAGED_SECRET_STORE_BACKEND=lead_agent.infrastructure.encrypted_secrets:create_backend`, inject
 a base64url-encoded 32-byte `SECRET_STORE_ENCRYPTION_KEY`, and set a non-empty
@@ -93,7 +107,8 @@ claim. The default development/test setting remains false so local test accounts
 - [ ] Managed secret backend and operator-owned OAuth app credentials resolve in API/worker runtime identities.
 - [ ] `production-check` passes in CI/CD without printing secrets.
 - [ ] `/health/live` and `/health/ready` are wired to distinct orchestrator probes; readiness is observed after migrations.
-- [ ] Start a Celery worker only if application tasks have been registered. No scheduler or outbox dispatcher is currently required by active synchronous flows.
+- [ ] Start the Celery worker and Beat scheduler for CRM inbound synchronization and Workspace
+      Communication reminders; verify both schedules against the configured Redis broker.
 - [ ] Structured logs are shipped with request/operation identifiers, redaction, retention limits, and alerts for provider failures, retry exhaustion, and readiness failures.
 - [ ] Verify backups, point-in-time recovery, restore procedure, migration recovery plan, and retention/deletion policy before production data is accepted.
 - [ ] Run a credential-pattern scan on artifacts and deployment configuration; keep live provider certification as a separate approved operation.

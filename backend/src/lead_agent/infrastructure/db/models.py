@@ -254,6 +254,225 @@ class WorkspaceAdminAuditEventORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CommunicationProjectORM(Base):
+    """A workspace-owned grouping for collaboration channels."""
+
+    __tablename__ = "communication_projects"
+    __table_args__ = (
+        Index("ix_communication_projects_workspace_updated", "workspace_id", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationConversationORM(Base):
+    """Channel, direct message, or group direct message within one workspace."""
+
+    __tablename__ = "communication_conversations"
+    __table_args__ = (
+        Index("ix_communication_conversations_workspace_updated", "workspace_id", "updated_at"),
+        Index("ix_communication_conversations_project", "project_id", "updated_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("communication_projects.id", ondelete="SET NULL"), nullable=True
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False)
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    primary_lead_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    is_archived: Mapped[bool] = mapped_column(nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationConversationMemberORM(Base):
+    __tablename__ = "communication_conversation_members"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "user_id", name="uq_communication_conversation_member"),
+        Index("ix_communication_members_user_conversation", "user_id", "conversation_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    role: Mapped[str] = mapped_column(String(24), nullable=False, default="member")
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CommunicationMessageORM(Base):
+    __tablename__ = "communication_messages"
+    __table_args__ = (
+        Index("ix_communication_messages_conversation_created", "conversation_id", "created_at"),
+        Index("ix_communication_messages_parent_created", "parent_message_id", "created_at"),
+        Index("ix_communication_messages_workspace_created", "workspace_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    parent_message_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=True
+    )
+    author_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    body: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    plaintext: Mapped[str] = mapped_column(Text, nullable=False)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationMessageMentionORM(Base):
+    __tablename__ = "communication_message_mentions"
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", name="uq_communication_message_mention"),
+        Index("ix_communication_mentions_user_message", "user_id", "message_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationMessageLeadORM(Base):
+    __tablename__ = "communication_message_leads"
+    __table_args__ = (
+        UniqueConstraint("message_id", "lead_id", name="uq_communication_message_lead"),
+        Index("ix_communication_message_leads_lead", "lead_id", "message_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    lead_id: Mapped[UUID] = mapped_column(
+        ForeignKey("leads.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationMessagePinORM(Base):
+    __tablename__ = "communication_message_pins"
+    __table_args__ = (
+        UniqueConstraint("message_id", name="uq_communication_message_pin"),
+        Index("ix_communication_pins_conversation_created", "conversation_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    pinned_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationNotificationORM(Base):
+    __tablename__ = "communication_notifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "recipient_id", "message_id", "kind", name="uq_communication_notification"
+        ),
+        Index("ix_communication_notifications_recipient_created", "recipient_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationReminderORM(Base):
+    __tablename__ = "communication_reminders"
+    __table_args__ = (Index("ix_communication_reminders_recipient_due", "recipient_id", "due_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    recipient_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    due_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationAttachmentORM(Base):
+    __tablename__ = "communication_attachments"
+    __table_args__ = (Index("ix_communication_attachments_message", "message_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    uploaded_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(24), nullable=False, default="file")
+    filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class LeadExportAuditEventORM(Base):
     __tablename__ = "lead_export_audit_events"
     __table_args__ = (

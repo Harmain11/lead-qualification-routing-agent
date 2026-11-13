@@ -131,6 +131,9 @@ class Settings(BaseSettings):
     social_provider: str = "none"
     demo_data_enabled: bool = False
     notification_provider: str = "mock"
+    communication_attachment_max_bytes: int = 4 * 1024 * 1024
+    communication_reminder_scheduler_interval_seconds: int = 60
+    cron_secret: str = ""
 
     @model_validator(mode="after")
     def validate_environment_security(self) -> Settings:
@@ -189,6 +192,12 @@ class Settings(BaseSettings):
             raise ValueError("OUTLOOK_INITIAL_SYNC_DAYS must be between 1 and 365")
         if self.export_sync_limit < 1 or self.export_sync_limit > 100_000:
             raise ValueError("EXPORT_SYNC_LIMIT must be between 1 and 100000")
+        if not 1_024 <= self.communication_attachment_max_bytes <= 4 * 1024 * 1024:
+            raise ValueError("COMMUNICATION_ATTACHMENT_MAX_BYTES must be between 1024 and 4194304")
+        if not 15 <= self.communication_reminder_scheduler_interval_seconds <= 3_600:
+            raise ValueError(
+                "COMMUNICATION_REMINDER_SCHEDULER_INTERVAL_SECONDS must be between 15 and 3600"
+            )
         if self.app_env == "production":
             self._validate_production_security()
         return self
@@ -215,6 +224,10 @@ class Settings(BaseSettings):
             len(self.webhook_signing_secret) >= 32
             and not _is_placeholder(self.webhook_signing_secret),
             "WEBHOOK_SIGNING_SECRET must be a non-placeholder value of at least 32 characters",
+        )
+        require(
+            len(self.cron_secret) >= 32 and not _is_placeholder(self.cron_secret),
+            "CRON_SECRET must be a non-placeholder value of at least 32 characters",
         )
         require(
             self.secret_store_provider == "managed",

@@ -69,6 +69,17 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: "Workspace",
     permissions: [{ id: "workspace.manage", label: "Manage workspace" }],
   },
+  {
+    label: "Communication",
+    permissions: [
+      { id: "communication.view", label: "View conversations" },
+      { id: "communication.create", label: "Send messages and create conversations" },
+      { id: "communication.manage", label: "Manage projects and channels" },
+      { id: "communication.search", label: "Search conversations" },
+      { id: "communication.attach", label: "Attach files and voice messages" },
+      { id: "communication.moderate", label: "Moderate messages" },
+    ],
+  },
 ];
 
 export const ROLE_OPTIONS = [
@@ -110,9 +121,10 @@ export const ROLE_DEFAULT_PERMISSIONS: Record<string, string[]> = {
     "leads.view", "leads.edit", "leads.export", "analytics.view", "manual_review.view",
     "manual_review.manage", "routing.view", "routing.manage", "members.view", "agents.view",
     "agents.execute", "crm.sync",
+    "communication.view", "communication.create", "communication.search", "communication.attach",
   ],
-  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "crm.sync"],
-  viewer: ["leads.view", "analytics.view", "manual_review.view", "routing.view", "integrations.view", "icp.view", "agents.view"],
+  sales_rep: ["leads.view", "leads.edit", "analytics.view", "manual_review.view", "routing.view", "agents.view", "agents.execute", "crm.sync", "communication.view", "communication.create", "communication.search", "communication.attach"],
+  viewer: ["leads.view", "analytics.view", "manual_review.view", "routing.view", "integrations.view", "icp.view", "agents.view", "communication.view", "communication.search"],
 };
 
 export function roleLabel(role: string) {

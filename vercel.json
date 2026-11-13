@@ -1,0 +1,22 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm ci --prefix frontend && npm run build --prefix frontend",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 300,
+      "includeFiles": "config/**",
+      "excludeFiles": "{backend/tests/**,frontend/**,ingenuity-lead-routing/**}"
+    }
+  },
+  "rewrites": [
+    { "source": "/v1/:path*", "destination": "/api/index.py" },
+    { "source": "/health/:path*", "destination": "/api/index.py" },
+    { "source": "/docs", "destination": "/api/index.py" },
+    { "source": "/openapi.json", "destination": "/api/index.py" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/v1/internal/cron", "schedule": "0 0 * * *" }
+  ]
+}

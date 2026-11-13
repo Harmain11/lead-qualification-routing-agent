@@ -1,6 +1,7 @@
 import logging
+from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from celery import Celery  # type: ignore[import-untyped]
 from celery.signals import task_failure, task_retry  # type: ignore[import-untyped]
@@ -14,6 +15,8 @@ from lead_agent.application.services import reprocess_lead
 from lead_agent.infrastructure.crm.inbound_factory import get_workspace_inbound_crm_resolver
 from lead_agent.infrastructure.db.models import (
     AnalysisRunORM,
+    CommunicationNotificationORM,
+    CommunicationReminderORM,
     CrmInboundSyncStateORM,
     LeadORM,
     ProviderConnectionORM,
@@ -57,7 +60,11 @@ celery_app.conf.update(
         "dispatch-due-crm-inbound-syncs": {
             "task": "lead_agent.dispatch_due_crm_inbound_syncs",
             "schedule": settings.crm_inbound_scheduler_interval_seconds,
-        }
+        },
+        "dispatch-due-communication-reminders": {
+            "task": "lead_agent.dispatch_due_communication_reminders",
+            "schedule": settings.communication_reminder_scheduler_interval_seconds,
+        },
     },
 )
 # Celery has no effective global ``task_max_retries`` configuration key. Set the
@@ -116,6 +123,59 @@ def dispatch_due_crm_inbound_syncs() -> int:
     for state_id in state_ids:
         run_scheduled_crm_inbound_sync.delay(state_id)
     return len(state_ids)
+
+
+def run_due_crm_inbound_syncs_inline(limit: int = 25) -> int:
+    """Run due CRM synchronizations inside an authenticated Vercel Cron invocation."""
+
+    with get_session_factory()() as session:
+        states = claim_due_inbound_sync_states(session, limit=limit)
+        state_ids = [str(state.id) for state in states]
+    for state_id in state_ids:
+        run_scheduled_crm_inbound_sync.run(state_id)
+    return len(state_ids)
+
+
+@celery_app.task(name="lead_agent.dispatch_due_communication_reminders")  # type: ignore[untyped-decorator]
+def dispatch_due_communication_reminders() -> int:
+    """Turn due private reminders into one in-app notification each."""
+
+    now = datetime.now(UTC)
+    with get_session_factory()() as session:
+        reminders = list(
+            session.scalars(
+                select(CommunicationReminderORM)
+                .where(
+                    CommunicationReminderORM.completed_at.is_(None),
+                    CommunicationReminderORM.due_at <= now,
+                )
+                .order_by(CommunicationReminderORM.due_at)
+                .limit(100)
+                .with_for_update(skip_locked=True)
+            )
+        )
+        for reminder in reminders:
+            exists = session.scalar(
+                select(CommunicationNotificationORM.id).where(
+                    CommunicationNotificationORM.recipient_id == reminder.recipient_id,
+                    CommunicationNotificationORM.message_id == reminder.message_id,
+                    CommunicationNotificationORM.kind == "reminder",
+                )
+            )
+            if exists is None:
+                session.add(
+                    CommunicationNotificationORM(
+                        id=uuid4(),
+                        workspace_id=reminder.workspace_id,
+                        recipient_id=reminder.recipient_id,
+                        message_id=reminder.message_id,
+                        kind="reminder",
+                        created_at=now,
+                    )
+                )
+            reminder.completed_at = now
+        session.commit()
+    return len(reminders)
 
 
 @celery_app.task(
@@ -180,11 +240,15 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
         provider = resolve_workspace_reasoning_provider(session, workspace_uuid)
         if getattr(provider, "provider_name", "") != "openai":
             return "skipped: verified workspace OpenAI provider is unavailable"
-        openai_completed = select(AnalysisRunORM.id).where(
-            AnalysisRunORM.lead_id == LeadORM.id,
-            AnalysisRunORM.provider == "openai",
-            AnalysisRunORM.status == "completed",
-        ).exists()
+        openai_completed = (
+            select(AnalysisRunORM.id)
+            .where(
+                AnalysisRunORM.lead_id == LeadORM.id,
+                AnalysisRunORM.provider == "openai",
+                AnalysisRunORM.status == "completed",
+            )
+            .exists()
+        )
         lead_ids = list(
             session.scalars(
                 select(LeadORM.id)
@@ -218,9 +282,7 @@ def reanalyze_workspace_leads(self: object, workspace_id: str) -> str:
                     else lead.annual_revenue,
                     "geography": lead.geography,
                     "budget": (
-                        float(lead.budget)
-                        if isinstance(lead.budget, Decimal)
-                        else lead.budget
+                        float(lead.budget) if isinstance(lead.budget, Decimal) else lead.budget
                     ),
                     "product_or_service": lead.product_or_service,
                     "message": lead.message,

@@ -726,3 +726,90 @@ export type ManualReviewAnalytics = {
   items: Array<LeadCard & { review_reasons: string[] }>;
   total: number;
 };
+
+export type CommunicationMember = {
+  id: string;
+  display_name: string;
+  email: string;
+};
+
+export type CommunicationLeadReference = {
+  id: string;
+  full_name: string;
+  company_name: string;
+  qualification: string | null;
+  source: string;
+};
+
+export type CommunicationProject = {
+  id: string;
+  name: string;
+  description: string;
+  is_archived: boolean;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CommunicationConversation = {
+  id: string;
+  project_id: string | null;
+  kind: "channel" | "dm" | "group_dm";
+  name: string | null;
+  description: string;
+  primary_lead: CommunicationLeadReference | null;
+  is_archived: boolean;
+  member_ids: string[];
+  updated_at: string;
+};
+
+export type CommunicationMessage = {
+  id: string;
+  conversation_id: string;
+  parent_message_id: string | null;
+  author: CommunicationMember;
+  body: Record<string, unknown>;
+  plaintext: string;
+  mentioned_user_ids: string[];
+  leads: CommunicationLeadReference[];
+  attachments: CommunicationAttachment[];
+  is_pinned: boolean;
+  edited_at: string | null;
+  deleted_at: string | null;
+  created_at: string;
+};
+
+export type CommunicationAttachment = {
+  id: string;
+  message_id: string;
+  kind: "file" | "voice";
+  filename: string;
+  content_type: string;
+  byte_size: number;
+  duration_ms: number | null;
+  created_at: string;
+  download_url: string;
+};
+
+export type CommunicationBootstrap = {
+  active_user_id: string;
+  projects: CommunicationProject[];
+  conversations: CommunicationConversation[];
+  members: CommunicationMember[];
+};
+
+export type CommunicationNotification = {
+  id: string;
+  kind: "mention" | "dm" | "thread_reply" | string;
+  message_id: string;
+  read_at: string | null;
+  created_at: string;
+};
+
+export type CommunicationLinkPreview = {
+  url: string;
+  domain: string;
+  title: string | null;
+  description: string | null;
+  image_url: string | null;
+};

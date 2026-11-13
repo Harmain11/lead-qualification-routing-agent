@@ -27,6 +27,7 @@ import { OpenAISetupPrompt } from "./components/OpenAISetupPrompt";
 import { IntegrationsView } from "./views/IntegrationsView";
 import { IcpView } from "./views/IcpView";
 import { TeamView } from "./views/TeamView";
+import { CommunicationView } from "./views/CommunicationView";
 import {
   AgentsView,
   AnalyticsView,
@@ -44,6 +45,7 @@ type View =
   | "pipeline"
   | "agents"
   | "analytics"
+  | "communication"
   | "integrations"
   | "review"
   | "settings";
@@ -62,6 +64,7 @@ const navigation: Array<{ id: View; label: string; group?: string }> = [
   { id: "pipeline", label: "Pipeline" },
   { id: "agents", label: "Agents / AI Activity" },
   { id: "analytics", label: "Analytics" },
+  { id: "communication", label: "Communication" },
   { id: "review", label: "Manual Review", group: "Control" },
   { id: "integrations", label: "Integrations" },
   { id: "settings", label: "Settings" },
@@ -75,6 +78,7 @@ function NavIcon({ id }: { id: View }) {
     case "pipeline": return <svg {...shared}><path d="M4 5v5a5 5 0 0 0 5 5h9M4 19v-4a5 5 0 0 1 5-5h9M15 6l4 4-4 4"/></svg>;
     case "agents": return <svg {...shared}><path d="m12 2 1.9 6.1L20 10l-6.1 1.9L12 18l-1.9-6.1L4 10l6.1-1.9zM19 17l.7 1.3L21 19l-1.3.7L19 21l-.7-1.3L17 19l1.3-.7z"/></svg>;
     case "analytics": return <svg {...shared}><path d="M4 20V11M10 20V4M16 20v-8M22 20V8M2 20h20"/></svg>;
+    case "communication": return <svg {...shared}><path d="M4 5.5h16v10H8l-4 3z"/><path d="M8 9h8M8 12h5"/></svg>;
     case "review": return <svg {...shared}><path d="M4 4h16v11l-3 5H7l-3-5zM4 15h5l1.5 2h3L15 15h5M9 9l2 2 4-4"/></svg>;
     case "integrations": return <svg {...shared}><path d="M8 3v5M16 3v5M6 8h12v3a6 6 0 0 1-6 6v4M12 21h5"/></svg>;
     case "settings": return <svg {...shared}><path d="M12 3l1.4 1.5 2-.2.8 1.8 2 .5v2l1.6 1.2-1 1.8 1 1.8-1.6 1.2v2l-2 .5-.8 1.8-2-.2L12 21l-1.4-1.5-2 .2-.8-1.8-2-.5v-2L4.2 14l1-1.8-1-1.8L5.8 9v-2l2-.5.8-1.8 2 .2z"/><circle cx="12" cy="12" r="3"/></svg>;
@@ -415,6 +419,7 @@ function App() {
             {view === "pipeline" && <PipelineView data={data?.pipeline ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "agents" && <AgentsView data={data?.agents ?? null} pipeline={data?.pipeline ?? null} />}
             {view === "analytics" && <AnalyticsView data={data} />}
+            {view === "communication" && <CommunicationView permissions={workspacePermissions} onOpenLead={(id) => { void handleInspectLead(id); setView("leads"); }} />}
             {view === "review" && <ManualReviewView data={data?.review ?? null} onInspect={(id) => { handleInspectLead(id); setView("leads"); }} />}
             {view === "integrations" && <IntegrationsView permissions={workspacePermissions} />}
             {view === "settings" && <SettingsView metadata={metadata} onIntegrations={() => setView("integrations")} onTeam={() => setView("team")} onIcp={() => setView("icp")} canViewTeam={can(workspacePermissions, "members.view")} canViewIcp={can(workspacePermissions, "icp.view")} canViewRouting={can(workspacePermissions, "routing.view")} canManageRouting={can(workspacePermissions, "routing.manage")} canViewPublicIntake={can(workspacePermissions, "integrations.manage")} canRotatePublicIntake={can(workspacePermissions, "integrations.manage")} canManageEmail={can(workspacePermissions, "integrations.manage")} />}

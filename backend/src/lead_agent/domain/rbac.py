@@ -25,6 +25,12 @@ PERMISSION_CATALOG: frozenset[str] = frozenset(
         "agents.execute",
         "crm.sync",
         "workspace.manage",
+        "communication.view",
+        "communication.create",
+        "communication.manage",
+        "communication.search",
+        "communication.attach",
+        "communication.moderate",
     }
 )
 
@@ -69,6 +75,10 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "agents.view",
             "agents.execute",
             "crm.sync",
+            "communication.view",
+            "communication.create",
+            "communication.search",
+            "communication.attach",
         }
     ),
     "sales_rep": frozenset(
@@ -81,6 +91,10 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "agents.view",
             "agents.execute",
             "crm.sync",
+            "communication.view",
+            "communication.create",
+            "communication.search",
+            "communication.attach",
         }
     ),
     "viewer": frozenset(
@@ -92,6 +106,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "integrations.view",
             "icp.view",
             "agents.view",
+            "communication.view",
+            "communication.search",
         }
     ),
 }
