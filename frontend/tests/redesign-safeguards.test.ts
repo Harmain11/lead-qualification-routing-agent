@@ -82,6 +82,7 @@ test("bulk actions keep their confirmations and permission gates", async () => {
 test("lead-row mutations cannot accidentally open the lead detail pane", async () => {
   const leads = await source("../src/v3/screens/LeadsScreen.tsx");
   assert.match(leads, /const isLeadRowControl = \(target: EventTarget \| null\)/);
+  assert.match(leads, /target instanceof Element/);
   assert.match(leads, /if \(isLeadRowControl\(event\.target\)\) return;/);
   assert.match(leads, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
   assert.match(leads, /event\.stopPropagation\(\); onOwnerAssignmentChange/);

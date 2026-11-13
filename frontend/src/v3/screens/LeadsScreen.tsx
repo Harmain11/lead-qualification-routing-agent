@@ -85,7 +85,7 @@ const lensOf = (section: LeadDetailSection): Lens => (LENSES.some((lens) => lens
 const readable = (value?: string | null) => (value ? titleize(value) : "Not recorded");
 const dateOnly = (value?: string | null) => (value && Number.isFinite(Date.parse(value)) ? formatShortDate(value) : "Not recorded");
 const isLeadRowControl = (target: EventTarget | null) =>
-  target instanceof HTMLElement && Boolean(target.closest("button, input, select, textarea, a, label, [role='menuitem']"));
+  target instanceof Element && Boolean(target.closest("button, input, select, textarea, a, label, [role='menuitem']"));
 function lensColumns(lens: Lens): [string, string] {
   switch (lens) {
     case "ai": return ["Classification", "Service"];
