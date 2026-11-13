@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, delete, func, inspect, or_, select
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from lead_agent.api.dependencies import (
@@ -112,6 +112,14 @@ from lead_agent.settings.config import Settings, get_settings
 
 router = APIRouter(prefix="/v1/leads", tags=["leads"])
 _LOGGER = logging.getLogger("lead_agent.api.leads")
+
+
+def _read_receipts_available(session: Session) -> bool:
+    """Keep lead reads safe during a rolling schema update."""
+    try:
+        return inspect(session.get_bind()).has_table("lead_read_receipts")
+    except Exception:  # pragma: no cover - defensive for unavailable metadata
+        return False
 
 
 def _current_confirmation_email(
@@ -596,16 +604,18 @@ def list_all_leads(
             .limit(limit)
         ).unique()
     )
-    receipts = {
-        receipt.lead_id: receipt.seen_at
-        for receipt in session.scalars(
-            select(LeadReadReceiptORM).where(
-                LeadReadReceiptORM.workspace_id == workspace.workspace_id,
-                LeadReadReceiptORM.user_id == workspace.user_id,
-                LeadReadReceiptORM.lead_id.in_([row.id for row in rows]),
+    receipts = {}
+    if workspace.user_id and rows and _read_receipts_available(session):
+        receipts = {
+            receipt.lead_id: receipt.seen_at
+            for receipt in session.scalars(
+                select(LeadReadReceiptORM).where(
+                    LeadReadReceiptORM.workspace_id == workspace.workspace_id,
+                    LeadReadReceiptORM.user_id == workspace.user_id,
+                    LeadReadReceiptORM.lead_id.in_([row.id for row in rows]),
+                )
             )
-        )
-    } if workspace.user_id and rows else {}
+        }
 
     def current_routing(row: LeadORM) -> RoutingDecisionORM | None:
         current = [item for item in row.routing_decisions if item.is_current]
@@ -854,7 +864,7 @@ def retrieve_lead(
     row = get_lead(session, lead_id, workspace.workspace_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Lead not found")
-    if workspace.user_id is not None:
+    if workspace.user_id is not None and _read_receipts_available(session):
         receipt = session.get(LeadReadReceiptORM, (row.id, workspace.user_id))
         if receipt is None:
             session.add(LeadReadReceiptORM(
