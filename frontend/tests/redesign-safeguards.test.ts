@@ -79,6 +79,15 @@ test("bulk actions keep their confirmations and permission gates", async () => {
   assert.match(leads, /canManageRouting && lead\.routing \?/);
 });
 
+test("lead-row mutations cannot accidentally open the lead detail pane", async () => {
+  const leads = await source("../src/v3/screens/LeadsScreen.tsx");
+  assert.match(leads, /const isLeadRowControl = \(target: EventTarget \| null\)/);
+  assert.match(leads, /if \(isLeadRowControl\(event\.target\)\) return;/);
+  assert.match(leads, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
+  assert.match(leads, /event\.stopPropagation\(\); onOwnerAssignmentChange/);
+  assert.match(leads, /event\.stopPropagation\(\); onAssignmentChange/);
+});
+
 test("the lead record keeps delete confirmation, CRM gating and enrolment gating", async () => {
   const record = await source("../src/v3/screens/LeadRecord.tsx");
   assert.match(record, /confirmAction\(\{ title: "Delete this lead\?"[\s\S]*?tone: "danger"/);

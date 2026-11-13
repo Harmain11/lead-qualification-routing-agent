@@ -84,6 +84,8 @@ const LENSES: Array<{ value: Lens; label: string }> = [
 const lensOf = (section: LeadDetailSection): Lens => (LENSES.some((lens) => lens.value === section) ? (section as Lens) : "overview");
 const readable = (value?: string | null) => (value ? titleize(value) : "Not recorded");
 const dateOnly = (value?: string | null) => (value && Number.isFinite(Date.parse(value)) ? formatShortDate(value) : "Not recorded");
+const isLeadRowControl = (target: EventTarget | null) =>
+  target instanceof HTMLElement && Boolean(target.closest("button, input, select, textarea, a, label, [role='menuitem']"));
 function lensColumns(lens: Lens): [string, string] {
   switch (lens) {
     case "ai": return ["Classification", "Service"];
@@ -909,11 +911,15 @@ const LeadRow = memo(function LeadRow({
       tabIndex={0}
       aria-label={`${name}, ${lead.company_name || "no company"}. Open lead.`}
       onClick={(event) => {
-        if ((event.target as HTMLElement).closest("button, input, select, a, label")) return;
+        // Assignment controls and row actions must never turn a mutation into
+        // an accidental lead-detail navigation. Opening the record is only
+        // done by clicking the row's non-interactive surface or its explicit
+        // Open action.
+        if (isLeadRowControl(event.target)) return;
         onInspect(lead.id);
       }}
       onKeyDown={(event) => {
-        if ((event.target as HTMLElement).closest("button, input, select")) return;
+        if (isLeadRowControl(event.target)) return;
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
           onInspect(lead.id);
@@ -921,7 +927,7 @@ const LeadRow = memo(function LeadRow({
       }}
     >
       <td className="c-check">
-        <input type="checkbox" className="v-check" aria-label={`Select ${name}`} checked={checked} onChange={() => onToggle(lead.id)} onClick={(event) => event.stopPropagation()} />
+        <input type="checkbox" className="v-check" aria-label={`Select ${name}`} checked={checked} onChange={() => onToggle(lead.id)} onClick={(event) => event.stopPropagation()} onPointerDown={(event) => event.stopPropagation()} />
       </td>
       <td className="c-lead">
         <span className="v-lead-cell">
@@ -951,7 +957,7 @@ const LeadRow = memo(function LeadRow({
           </td>
           <td className="c-b">
             {canManageRouting ? (
-              <select className="v-popup" aria-label={`Lead owner for ${lead.full_name}`} value={lead.owner_id || ""} disabled={savingAssignment || assignmentDisabled} onClick={(event) => event.stopPropagation()} onChange={(event) => onOwnerAssignmentChange(lead.id, event.target.value || null)}>
+              <select className="v-popup" aria-label={`Lead owner for ${lead.full_name}`} value={lead.owner_id || ""} disabled={savingAssignment || assignmentDisabled} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); onOwnerAssignmentChange(lead.id, event.target.value || null); }}>
                 <option value="">Unassigned</option>
                 {lead.owner_id && !ownerAssignmentOptions.some((option) => option.user_id === lead.owner_id) && <option value={lead.owner_id}>{lead.owner_name || "Current owner"}</option>}
                 {ownerAssignmentOptions.map((option) => <option key={option.user_id} value={option.user_id}>{option.display_name}</option>)}
@@ -969,8 +975,9 @@ const LeadRow = memo(function LeadRow({
                   aria-label={`Assigned representative for ${lead.full_name}`}
                   value={lead.routing.assigned_rep_id || ""}
                   disabled={savingAssignment || assignmentDisabled}
+                  onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => onAssignmentChange(lead.id, event.target.value || null)}
+                  onChange={(event) => { event.stopPropagation(); onAssignmentChange(lead.id, event.target.value || null); }}
                 >
                   <option value="">Unassigned</option>
                   {lead.routing.assigned_rep_id && !assignmentOptions.some((option) => option.user_id === lead.routing?.assigned_rep_id) && (
