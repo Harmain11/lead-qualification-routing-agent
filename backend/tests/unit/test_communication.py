@@ -176,6 +176,19 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
         )
         assert message.mentioned_user_ids == [teammate.id]
         assert message.leads[0].full_name == "Amina Noor"
+        notification = session.scalar(select(CommunicationNotificationORM).where(
+            CommunicationNotificationORM.message_id == message.id,
+            CommunicationNotificationORM.recipient_id == teammate.id,
+            CommunicationNotificationORM.kind == "mention",
+        ))
+        assert notification is not None
+        teammate_context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id,
+            role="sales_rep", permissions=frozenset({"communication.view"}),
+        )
+        teammate_bootstrap = bootstrap(session, teammate_context)
+        assert {member.id for member in teammate_bootstrap.members} == {owner.id, teammate.id}
+        assert [item.id for item in teammate_bootstrap.conversations] == [conversation.id]
         pinned = pin_message(message.id, session, context)
         assert pinned.is_pinned is True
         assert [item.id for item in search_messages("review", session, context)] == [message.id]
