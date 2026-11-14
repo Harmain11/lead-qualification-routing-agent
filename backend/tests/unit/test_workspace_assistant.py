@@ -26,10 +26,19 @@ def test_communication_navigation_requires_workspace_access() -> None:
     allowed = workspace_action_capabilities({"communication.view"})
     navigation = next(item for item in allowed if item["kind"] == "open_module")
     assert "communication" in navigation["allowed_areas"]
+    assert navigation["requires_review_and_approval"] is True
     other = workspace_action_capabilities({"leads.view"})
     navigation = next(item for item in other if item["kind"] == "open_module")
     assert "communication" not in navigation["allowed_areas"]
     assert WorkspaceAssistantAction(kind="open_module", area="communication").area == "communication"
+
+
+def test_navigation_proposal_cannot_claim_it_already_opened() -> None:
+    action = WorkspaceAssistantAction(kind="open_module", area="communication")
+    reply = lead_assistant._truthful_workspace_assistant_reply(
+        "I opened Communication.", action, "Open Communication"
+    )
+    assert "not completed" in reply
 
 
 def test_manual_review_completion_capability_requires_view_and_manage() -> None:

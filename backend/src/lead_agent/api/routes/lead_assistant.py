@@ -514,7 +514,7 @@ def _truthful_workspace_assistant_reply(
     completion_claim = re.search(
         r"\b(?:done|completed|finished)\b|"
         r"\b(?:I|we)\s+(?:have\s+)?(?:already\s+)?"
-        r"(?:booked|sent|deleted|saved|created|updated|changed|completed|cancelled|canceled|rescheduled)\b"
+        r"(?:opened|booked|sent|deleted|saved|created|updated|changed|completed|cancelled|canceled|rescheduled)\b"
         r"|\b(?:it|that|the action|the meeting|the appointment)\s+(?:has been|was|is now)\s+"
         r"(?:booked|sent|deleted|saved|created|updated|changed|completed|cancelled|canceled|rescheduled)\b",
         reply,

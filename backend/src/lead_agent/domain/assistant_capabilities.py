@@ -102,9 +102,7 @@ def workspace_action_capabilities(permissions: Collection[str]) -> list[dict[str
         {
             "kind": kind,
             "required_fields": _REQUIRED_FIELDS[kind],
-            "requires_review_and_approval": kind not in {
-                "open_module", "open_lead", "open_deal_desk",
-            },
+            "requires_review_and_approval": True,
             **({"allowed_areas": areas} if kind == "open_module" else {}),
         }
         for kind, required in WORKSPACE_ACTION_PERMISSIONS.items()
