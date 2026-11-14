@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from types import SimpleNamespace
@@ -81,10 +82,10 @@ def test_link_preview_stops_redirect_loops(monkeypatch: pytest.MonkeyPatch) -> N
         def __exit__(self, *args: object) -> None:
             pass
 
-        def get(self, url: httpx.URL, **kwargs: object) -> httpx.Response:
-            return httpx.Response(
+        def stream(self, method: str, url: httpx.URL, **kwargs: object):
+            return nullcontext(httpx.Response(
                 302, headers={"location": "/loop"}, request=httpx.Request("GET", url)
-            )
+            ))
 
     monkeypatch.setattr("lead_agent.api.routes.communication.httpx.Client", RedirectClient)
     monkeypatch.setattr(
@@ -112,12 +113,12 @@ def test_link_preview_connects_to_validated_ip_with_original_tls_hostname(
         def __exit__(self, *args: object) -> None:
             pass
 
-        def get(self, url: httpx.URL, **kwargs: object) -> httpx.Response:
+        def stream(self, method: str, url: httpx.URL, **kwargs: object):
             observed.update(url=url, **kwargs)
-            return httpx.Response(
+            return nullcontext(httpx.Response(
                 200, headers={"content-type": "text/html"}, text="<title>Example</title>",
                 request=httpx.Request("GET", url),
-            )
+            ))
 
     monkeypatch.setattr("lead_agent.api.routes.communication.httpx.Client", Client)
     monkeypatch.setattr(
@@ -130,6 +131,39 @@ def test_link_preview_connects_to_validated_ip_with_original_tls_hostname(
     assert observed["options"]["trust_env"] is False
     assert result.url == "https://example.com/path"
     assert result.title == "Example"
+
+
+def test_link_preview_stops_reading_large_html(monkeypatch: pytest.MonkeyPatch) -> None:
+    chunks_read = []
+
+    class Body(httpx.SyncByteStream):
+        def __iter__(self):
+            for index in range(10):
+                chunks_read.append(index)
+                yield b"x" * 100_000
+
+    class Client:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def stream(self, method: str, url: httpx.URL, **kwargs: object):
+            return nullcontext(httpx.Response(
+                200, headers={"content-type": "text/html"}, stream=Body(),
+                request=httpx.Request("GET", url),
+            ))
+
+    monkeypatch.setattr("lead_agent.api.routes.communication.httpx.Client", Client)
+    monkeypatch.setattr(
+        "lead_agent.api.routes.communication._preview_address", lambda _: "93.184.216.34"
+    )
+    _link_preview("https://example.com/", "example.com")
+    assert chunks_read == [0, 1]
 
 
 def _seed(session: Session) -> tuple[WorkspaceORM, UserORM, UserORM, LeadORM]:

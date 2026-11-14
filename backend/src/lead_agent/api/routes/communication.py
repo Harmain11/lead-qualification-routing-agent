@@ -283,11 +283,24 @@ def _link_preview(url: str, domain: str, redirects_remaining: int = 5) -> LinkPr
     pinned_url = httpx.URL(url).copy_with(host=address)
     try:
         with httpx.Client(timeout=3.0, follow_redirects=False, trust_env=False) as client:
-            response = client.get(
-                pinned_url,
+            with client.stream(
+                "GET", pinned_url,
                 headers={"User-Agent": "CorralLinkPreview/1.0", "Host": host_header},
                 extensions={"sni_hostname": domain},
-            )
+            ) as response:
+                if not response.is_redirect:
+                    if response.status_code >= 400 or "text/html" not in response.headers.get(
+                        "content-type", ""
+                    ):
+                        raise HTTPException(
+                            status_code=422, detail="link does not provide HTML metadata"
+                        )
+                    content = bytearray()
+                    for chunk in response.iter_bytes():
+                        content.extend(chunk[: 200_000 - len(content)])
+                        if len(content) >= 200_000:
+                            break
+                    document = bytes(content).decode(response.encoding or "utf-8", errors="replace")
     except httpx.HTTPError as error:
         raise HTTPException(status_code=422, detail="link metadata is unavailable") from error
     if response.is_redirect:
@@ -302,9 +315,6 @@ def _link_preview(url: str, domain: str, redirects_remaining: int = 5) -> LinkPr
                 status_code=422, detail="cross-domain redirects cannot be previewed"
             )
         return _link_preview(redirect_url, redirect_domain, redirects_remaining - 1)
-    if response.status_code >= 400 or "text/html" not in response.headers.get("content-type", ""):
-        raise HTTPException(status_code=422, detail="link does not provide HTML metadata")
-    document = response.text[:200_000]
     title = _metadata(document, "og:title") or _metadata(document, "twitter:title")
     if not title:
         title_match = re.search(r"<title\b[^>]*>(.*?)</title\s*>", document, re.I | re.S)
