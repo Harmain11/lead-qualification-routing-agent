@@ -4,6 +4,7 @@ import { parseAssistantCommand } from "../src/components/assistantCommands.ts";
 
 test("plain navigation runs as an instant command", () => {
   assert.deepEqual(parseAssistantCommand("open pipeline"), { kind: "navigate", area: "pipeline" });
+  assert.deepEqual(parseAssistantCommand("open communication"), { kind: "navigate", area: "communication" });
   assert.deepEqual(parseAssistantCommand("Go to the inbox."), { kind: "navigate", area: "email" });
   assert.deepEqual(parseAssistantCommand("please take me to call history"), { kind: "navigate", area: "dialer" });
   assert.deepEqual(parseAssistantCommand("Show me my calendar page"), { kind: "navigate", area: "calendar" });

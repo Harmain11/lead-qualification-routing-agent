@@ -172,6 +172,7 @@ export const ASSISTANT_AREAS: Record<WorkspaceAssistantArea, { label: string; pe
   leads: { label: "Leads", permissions: ["leads.view"] },
   pipeline: { label: "Pipeline", permissions: ["analytics.view"] },
   revenue: { label: "Revenue", permissions: ["analytics.view"] },
+  communication: { label: "Communication", permissions: ["communication.view"] },
   review: { label: "Review", permissions: ["manual_review.view"] },
   email: { label: "Inbox", permissions: ["integrations.view"] },
   calendar: { label: "Calendar", permissions: ["leads.view"] },

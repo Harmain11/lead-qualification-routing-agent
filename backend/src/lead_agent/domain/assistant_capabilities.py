@@ -36,6 +36,7 @@ WORKSPACE_AREA_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "leads": ("leads.view",),
     "pipeline": ("analytics.view",),
     "revenue": ("analytics.view",),
+    "communication": ("communication.view",),
     "review": ("manual_review.view",),
     "email": ("integrations.view",),
     "calendar": ("leads.view",),

@@ -114,6 +114,7 @@ export type WorkspaceAssistantArea =
   | "leads"
   | "pipeline"
   | "revenue"
+  | "communication"
   | "review"
   | "email"
   | "calendar"

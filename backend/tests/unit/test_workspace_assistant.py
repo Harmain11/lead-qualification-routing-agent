@@ -22,6 +22,16 @@ from lead_agent.domain.lead_assistant import (
 from lead_agent.domain.workspaces import WorkspaceContext
 
 
+def test_communication_navigation_requires_workspace_access() -> None:
+    allowed = workspace_action_capabilities({"communication.view"})
+    navigation = next(item for item in allowed if item["kind"] == "open_module")
+    assert "communication" in navigation["allowed_areas"]
+    other = workspace_action_capabilities({"leads.view"})
+    navigation = next(item for item in other if item["kind"] == "open_module")
+    assert "communication" not in navigation["allowed_areas"]
+    assert WorkspaceAssistantAction(kind="open_module", area="communication").area == "communication"
+
+
 def test_manual_review_completion_capability_requires_view_and_manage() -> None:
     manager_actions = workspace_action_capabilities({"leads.view", "manual_review.manage"})
     capability = next(

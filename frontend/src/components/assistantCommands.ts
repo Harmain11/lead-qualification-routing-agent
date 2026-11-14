@@ -16,6 +16,7 @@ const AREA_ALIASES: Record<WorkspaceAssistantArea, string[]> = {
   leads: ["leads", "lead list", "all leads"],
   pipeline: ["pipeline", "board", "pipeline board", "deals"],
   revenue: ["revenue", "forecast", "revenue forecast"],
+  communication: ["communication", "messages", "team chat"],
   review: ["review", "reviews", "manual review", "review queue"],
   email: ["inbox", "email", "emails", "mail", "mailbox", "gmail"],
   calendar: ["calendar", "meetings", "schedule", "agenda"],

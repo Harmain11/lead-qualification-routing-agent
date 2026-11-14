@@ -127,6 +127,7 @@ class WorkspaceAssistantAction(BaseModel):
         "leads",
         "pipeline",
         "revenue",
+        "communication",
         "review",
         "email",
         "calendar",
