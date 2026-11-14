@@ -7,22 +7,24 @@ from pathlib import Path
 from lead_agent.settings.config import Settings
 from lead_agent.worker.celery_app import _resolve_celery_transport
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+
 
 def test_vercel_declares_a_hobby_safe_scheduled_sync() -> None:
-    import json
-    from pathlib import Path
-
-    config = json.loads(Path("vercel.json").read_text(encoding="utf-8"))
+    config = json.loads((REPOSITORY_ROOT / "vercel.json").read_text(encoding="utf-8"))
     assert "crons" not in config
     assert config["schedules"] == {
         "inbound-sync": {
             "schedule": "*/15 * * * *",
             "path": "/v1/internal/scheduled-sync",
             "requestMethod": "GET",
-        }
+        },
+        "communication-reminders": {
+            "schedule": "*/15 * * * *",
+            "path": "/v1/internal/cron",
+            "requestMethod": "GET",
+        },
     }
-
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_vercel_services_route_api_before_spa_fallback() -> None:
