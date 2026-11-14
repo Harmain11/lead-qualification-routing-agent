@@ -188,11 +188,11 @@ const navigation: Array<{ id: View; label: string; group: string; icon: IconName
   { id: "leads", label: "Leads", group: "main", icon: "leads" },
   { id: "pipeline", label: "Pipeline", group: "main", icon: "pipeline" },
   { id: "revenue", label: "Revenue", group: "main", icon: "revenue" },
+  { id: "communication", label: "Communication", group: "main", icon: "inbox" },
   { id: "review", label: "Review", group: "work", icon: "review" },
   { id: "email", label: "Inbox", group: "work", icon: "inbox" },
   { id: "calendar", label: "Calendar", group: "work", icon: "calendar" },
   { id: "dialer", label: "Calls", group: "work", icon: "calls" },
-  { id: "communication", label: "Communication", group: "work", icon: "inbox" },
   { id: "contacts", label: "Contacts", group: "records", icon: "contacts" },
   { id: "accounts", label: "Companies", group: "records", icon: "companies" },
   { id: "performance", label: "Team Performance", group: "insights", icon: "trophy" },
@@ -211,7 +211,7 @@ const NAV_GROUP_LABELS: Record<string, string | undefined> = {
   insights: "Insights",
   workspace: "Workspace",
 };
-const TAB_BAR_VIEWS: View[] = ["dashboard", "leads", "pipeline", "revenue"];
+const TAB_BAR_VIEWS: View[] = ["dashboard", "leads", "pipeline", "revenue", "communication"];
 
 // Unchanged from the previous release: when a person cannot open the requested
 // view, they land on the first permitted view in this order.
