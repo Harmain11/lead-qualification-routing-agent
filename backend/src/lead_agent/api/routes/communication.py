@@ -269,13 +269,15 @@ def _metadata(document: str, property_name: str) -> str | None:
     return match.group(1).strip()[:500] if match else None
 
 
-def _link_preview(url: str, domain: str) -> LinkPreviewResponse:
+def _link_preview(url: str, domain: str, redirects_remaining: int = 5) -> LinkPreviewResponse:
     try:
         with httpx.Client(timeout=3.0, follow_redirects=False) as client:
             response = client.get(url, headers={"User-Agent": "CorralLinkPreview/1.0"})
     except httpx.HTTPError as error:
         raise HTTPException(status_code=422, detail="link metadata is unavailable") from error
     if response.is_redirect:
+        if redirects_remaining <= 0:
+            raise HTTPException(status_code=422, detail="too many link preview redirects")
         target = response.headers.get("location")
         if not target:
             raise HTTPException(status_code=422, detail="link preview redirect is invalid")
@@ -284,7 +286,7 @@ def _link_preview(url: str, domain: str) -> LinkPreviewResponse:
             raise HTTPException(
                 status_code=422, detail="cross-domain redirects cannot be previewed"
             )
-        return _link_preview(redirect_url, redirect_domain)
+        return _link_preview(redirect_url, redirect_domain, redirects_remaining - 1)
     if response.status_code >= 400 or "text/html" not in response.headers.get("content-type", ""):
         raise HTTPException(status_code=422, detail="link does not provide HTML metadata")
     document = response.text[:200_000]
