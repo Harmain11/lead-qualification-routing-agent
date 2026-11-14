@@ -57,6 +57,24 @@
 .thread-replies article { padding: 12px 0; border-bottom: 1px solid var(--separator-strong); }
 .communication-thread .message-composer { margin: 16px 0 0; }
 .communication-loading { padding: 42px; color: var(--label-2); }
+.communication-sidebar-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 2px 4px 18px; }
+.communication-sidebar-title strong, .communication-sidebar-title small { display: block; }
+.communication-sidebar-title strong { font-size: 15px; letter-spacing: -.02em; }
+.communication-sidebar-title small { margin-top: 4px; color: var(--label-2); font-size: 12px; }
+.communication-count { display: grid; place-items: center; min-width: 28px; height: 28px; border-radius: 9px; background: var(--surface); color: var(--tint-text); font-size: 12px; font-weight: 700; }
+.communication-search { position: relative; display: flex; align-items: center; }
+.communication-search > svg { position: absolute; left: 12px; color: var(--label-2); pointer-events: none; }
+.communication-search input { padding-left: 38px; }
+.conversation-heading { display: flex; align-items: center; gap: 13px; min-width: 0; }
+.conversation-heading-icon, .communication-empty-icon { display: grid; place-items: center; flex: 0 0 auto; width: 44px; height: 44px; border-radius: 13px; background: color-mix(in srgb, var(--tint) 11%, var(--surface)); color: var(--tint-text); font-size: 23px; font-weight: 700; }
+.conversation-meta { display: flex; align-items: center; gap: 10px; }
+.conversation-meta > span { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border-radius: 8px; background: var(--surface-sunken); color: var(--label-2); font-size: 12px; font-weight: 600; }
+.communication-empty-content { display: grid; justify-items: center; gap: 10px; max-width: 330px; }
+.communication-empty-icon { width: 56px; height: 56px; border-radius: 17px; }
+.communication-empty-content strong { color: var(--label); font-size: 16px; }
+.communication-empty-content p { margin: 0; font-size: 13px; line-height: 1.6; }
+.communication-voice, .communication-send { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.communication-view button:focus-visible, .communication-view summary:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
 @media (max-width: 760px) {
   .communication-view { padding-top: 24px; }
   .communication-header-actions { width: 100%; }
