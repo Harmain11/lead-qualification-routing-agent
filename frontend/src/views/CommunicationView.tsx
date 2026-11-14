@@ -389,13 +389,17 @@ function FormattedMessage({ text }: { text: string }) {
 }
 
 function formatInline(value: string) {
-  return value.split(/(\*\*[^*]+\*\*|~~[^~]+~~|__[^_]+__|_[^_]+_|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g).map((token, index) => {
+  return value.split(/(\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s<>]+|\*\*[^*]+\*\*|~~[^~]+~~|__[^_]+__|_[^_]+_)/gi).map((token, index) => {
     if (token.startsWith("**") && token.endsWith("**")) return <strong key={index}>{token.slice(2, -2)}</strong>;
     if (token.startsWith("~~") && token.endsWith("~~")) return <s key={index}>{token.slice(2, -2)}</s>;
     if (token.startsWith("__") && token.endsWith("__")) return <u key={index}>{token.slice(2, -2)}</u>;
     if (token.startsWith("_") && token.endsWith("_")) return <em key={index}>{token.slice(1, -1)}</em>;
     const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
     if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer noopener">{link[1]}</a>;
+    if (/^https?:\/\//i.test(token)) {
+      const url = token.replace(/[.,!?;:]+$/, "");
+      return <span key={index}><a href={url} target="_blank" rel="noreferrer noopener">{url}</a>{token.slice(url.length)}</span>;
+    }
     return token;
   });
 }
