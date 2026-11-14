@@ -57,6 +57,27 @@ test("permissions are required before any lead-write API call", async () => {
   assert.equal(requests.length, 0);
 });
 
+test("approved workspace messages require access to the selected conversation", async () => {
+  requests.length = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), method: options?.method ?? "GET", body: JSON.parse(String(options?.body ?? "{}")) });
+    if (String(url).endsWith("/bootstrap")) {
+      return new Response(JSON.stringify({ conversations: [{ id: targetId, is_archived: false }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ id: "message" }), { status: 200 });
+  };
+  try {
+    const action = proposal("send_communication", { text: "Reviewed message" });
+    assert.equal(actions.canApplyWorkspaceAssistantAction(action, new Set(["communication.view"])), false);
+    await actions.applyWorkspaceAssistantAction(action, new Set(["communication.view", "communication.create"]), noNavigate, noNavigate);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].body.plaintext, "Reviewed message");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("approved profile updates preserve reviewed values and explicit clearing", async () => {
   requests.length = 0;
   const result = await actions.applyWorkspaceAssistantAction(

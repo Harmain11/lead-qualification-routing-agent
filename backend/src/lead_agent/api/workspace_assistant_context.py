@@ -41,6 +41,7 @@ def build_workspace_assistant_context(
                 "integrations": "integrations.view" in permissions,
                 "team": "members.view" in permissions,
                 "dialer": "dialer.call" in permissions,
+                "communication": "communication.view" in permissions,
             }.items() if allowed
         ],
         "knowledge_sources": {
@@ -62,6 +63,24 @@ def build_workspace_assistant_context(
         except Exception:
             logger.warning("assistant.context_unavailable", extra={"section": key}, exc_info=True)
             context["context_warnings"].append(f"{key} is unavailable; do not infer its values.")
+
+    if "communication.view" in permissions:
+        from lead_agent.api.routes.communication import bootstrap
+
+        def conversations() -> list[dict[str, Any]]:
+            data = bootstrap(session, workspace)
+            members = {member.id: member.display_name for member in data.members}
+            return [
+                {
+                    "id": str(item.id),
+                    "kind": item.kind,
+                    "name": item.name,
+                    "members": [members.get(member_id, "Member") for member_id in item.member_ids],
+                }
+                for item in data.conversations if not item.is_archived
+            ][:50]
+
+        load("communication_conversations", conversations)
 
     if "analytics.view" in permissions:
         load("analytics_monthly", lambda: dashboard("monthly", session, workspace))

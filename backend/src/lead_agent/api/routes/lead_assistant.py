@@ -945,6 +945,10 @@ def chat_with_workspace_assistant(
         "",
     )
     creation_requested = _is_lead_creation_request(request.messages)
+    automation_creation_requested = bool(
+        re.search(r"\b(?:create|make|build|design|set up|draft)\b", latest_user_message, re.I)
+        and re.search(r"\b(?:sequence|playbook)s?\b", latest_user_message, re.I)
+    )
     record_query = " ".join(
         message.content for message in reversed(request.messages)
         if message.role == "user"
@@ -1049,7 +1053,10 @@ def chat_with_workspace_assistant(
             "Corral workspace analytics, automations, ICP, settings, integrations, "
             "team access, Dialer navigation, guidance, and content generation"
         ),
-        "requested_workflow": "create_lead_draft" if creation_requested else None,
+        "requested_workflow": (
+            "create_automation_draft" if automation_creation_requested
+            else "create_lead_draft" if creation_requested else None
+        ),
         "available_actions": workspace_action_capabilities(workspace.permissions),
         "conversation_history": conversation_history,
         "related_conversation_history": related_conversation_history,
@@ -1117,6 +1124,12 @@ def chat_with_workspace_assistant(
     lead_mutations = {
         "update_lead_profile", "add_lead_note", "record_lead_progress", "reevaluate_lead",
     }
+    if automation_creation_requested and result.action.kind == "send_email":
+        result.action = WorkspaceAssistantAction()
+        result.reply = (
+            "You asked for a sequence or playbook, not a standalone email. "
+            "Please provide its goal and desired steps so I can prepare a paused draft for review."
+        )
     manual_review_mutations = {"complete_lead_manual_review"}
     lead_actions = lead_mutations | manual_review_mutations
     lead_write_query = (
@@ -1296,6 +1309,27 @@ def chat_with_workspace_assistant(
                         f"Clear {result.action.target_label}'s review hold and apply "
                         "current routing rules. The resulting assignee may be notified."
                     )
+    if result.action.kind == "send_communication":
+        conversation = next(
+            (item for item in workspace_context.get("communication_conversations", [])
+             if item.get("id") == result.action.target_id), None
+        )
+        try:
+            payload = json.loads(result.action.payload_json or "{}")
+            text = payload.get("text") if isinstance(payload, dict) else None
+        except (TypeError, ValueError):
+            text = None
+        if not conversation or not isinstance(text, str) or not text.strip() or len(text) > 20000:
+            result.action = WorkspaceAssistantAction()
+            result.reply = "Choose an accessible conversation and provide the message to review."
+        else:
+            result.action.target_label = conversation.get("name") or ", ".join(
+                conversation.get("members", [])
+            )
+            result.action.title = "Send workspace message"
+            result.action.summary = (
+                f"Send a message to {result.action.target_label} after approval."
+            )
     required = WORKSPACE_ACTION_PERMISSIONS.get(result.action.kind, ())
     permitted = set(required) <= workspace.permissions
     if result.action.kind == "open_module":

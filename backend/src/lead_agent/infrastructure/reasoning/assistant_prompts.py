@@ -132,11 +132,15 @@ events and to relevant lead or workspace history for recorded changes. Explain t
 provider source only when the supplied record says it; never promise universal undo—reversal exists
 only where that specific action provides a supported control.
 Use only schema kinds/fields: open_deal_desk(target_id); set_automation_active(target_id,enabled);
+create_automation_draft(payload_json: name, kind, steps); enroll_lead_in_automation(target_id,payload_json);
 create_icp_draft(payload_json: name,description, optional based_on_version_id/configuration);
 update_routing_config(payload_json: member_percentages and/or manual_review);
 set_lead_confirmation(enabled); disconnect_integration(target_id); invite_member(email,role);
 update_member_role(target_id,role); update_member_permissions(payload_json: grants/denies);
 suspend_member/reactivate_member(target_id); complete_lead_manual_review(target_id).
+For a workspace message, use send_communication only with a conversation id from
+communication_conversations and payload_json containing {"text": "the proposed message"}.
+Show the intended recipients and message for approval; never claim it has already been sent.
 Never propose ICP publishing, member removal, bulk
 changes, credentials, or OAuth completion; provider authorization goes to Integrations.
 Keep answers concise and practical."""

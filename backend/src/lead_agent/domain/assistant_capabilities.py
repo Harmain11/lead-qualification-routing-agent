@@ -14,6 +14,7 @@ WORKSPACE_ACTION_PERMISSIONS: dict[str, tuple[str, ...]] = {
     "reevaluate_lead": ("leads.view", "leads.edit"),
     "complete_lead_manual_review": ("leads.view", "manual_review.manage"),
     "send_email": ("leads.edit",),
+    "send_communication": ("communication.view", "communication.create"),
     "set_automation_active": ("workspace.manage",),
     "create_icp_draft": ("icp.manage",),
     "create_automation_draft": ("agents.view", "workspace.manage"),
@@ -71,6 +72,7 @@ _REQUIRED_FIELDS = {
     "send_email": [
         "email_subject", "email_body", "recipient reviewed in UI", "verified Gmail sender"
     ],
+    "send_communication": ["target_id: accessible conversation", "payload_json: text"],
     "set_automation_active": ["target_id", "enabled"],
     "create_icp_draft": ["payload_json"],
     "create_automation_draft": [

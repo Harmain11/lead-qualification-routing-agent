@@ -1182,7 +1182,7 @@ export function WorkspaceAssistantChat({
                       <AutomationDraftPreview action={message.action} />
                     )}
                     {message.action.payload_json && !["add_lead_note", "create_lead", "create_automation_draft"].includes(message.action.kind) && (
-                      <details open={["update_lead_profile", "add_lead_note", "record_lead_progress"].includes(message.action.kind) || undefined}>
+                      <details open={["update_lead_profile", "add_lead_note", "record_lead_progress", "send_communication"].includes(message.action.kind) || undefined}>
                         <summary>Review exact changes</summary>
                         <pre>{message.action.payload_json}</pre>
                       </details>
@@ -1279,6 +1279,7 @@ export function WorkspaceAssistantChat({
                             : message.action.kind === "create_lead" ? "Create lead"
                             : message.action.kind === "create_automation_draft" ? "Save as paused draft"
                             : message.action.kind === "enroll_lead_in_automation" ? "Enroll lead"
+                            : message.action.kind === "send_communication" ? "Approve and send"
                             : "Approve and apply"}
                       </button>
                       {message.action.kind !== "open_module" && (

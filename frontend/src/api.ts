@@ -164,6 +164,7 @@ export type WorkspaceAssistantAction = {
     | "suspend_member"
     | "reactivate_member"
     | "send_email"
+    | "send_communication"
     | "update_lead_profile"
     | "add_lead_note"
     | "record_lead_progress"

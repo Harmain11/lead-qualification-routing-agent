@@ -15,6 +15,8 @@ import {
   updateLeadProgress,
   reevaluateLead,
   completeLeadManualReview,
+  createCommunicationMessage,
+  getCommunicationBootstrap,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
 } from "../api";
@@ -226,6 +228,9 @@ export function canApplyWorkspaceAssistantAction(
       permissions.has("manual_review.manage"),
     );
   }
+  if (action.kind === "send_communication") {
+    return Boolean(action.target_id && permissions.has("communication.view") && permissions.has("communication.create"));
+  }
   const requiredPermission: Partial<Record<WorkspaceAssistantAction["kind"], string>> = {
     set_automation_active: "workspace.manage",
     create_icp_draft: "icp.manage",
@@ -252,6 +257,20 @@ export async function applyWorkspaceAssistantAction(
   onInspectLead: (leadId: string, section?: "deal") => void,
 ): Promise<string> {
   switch (action.kind) {
+    case "send_communication": {
+      requirePermission(permissions, "communication.view");
+      requirePermission(permissions, "communication.create");
+      const payload = parsePayload(action);
+      if (!action.target_id || typeof payload.text !== "string" || !payload.text.trim()) {
+        throw new Error("Choose a conversation and provide a message before sending.");
+      }
+      const workspace = await getCommunicationBootstrap();
+      const conversation = workspace.conversations.find((item) => item.id === action.target_id && !item.is_archived);
+      if (!conversation) throw new Error("That conversation is no longer accessible.");
+      const text = payload.text.trim();
+      await createCommunicationMessage(conversation.id, { plaintext: text, body: { version: 1, type: "plain_text", text } });
+      return `Sent the approved message to ${action.target_label || "the conversation"}.`;
+    }
     case "create_lead":
       throw new Error("Create this lead from its reviewed draft card.");
     case "complete_lead_manual_review": {

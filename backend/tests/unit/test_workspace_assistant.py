@@ -100,6 +100,27 @@ def test_workspace_chat_returns_provider_answer_and_conversation(monkeypatch) ->
     ]
 
 
+def test_sequence_request_does_not_become_standalone_email(monkeypatch) -> None:
+    captured = {}
+
+    class Provider:
+        def assist_with_workspace(self, payload):
+            captured.update(payload)
+            return WorkspaceAssistantReply(
+                reply="Here is an email.", action=WorkspaceAssistantAction(kind="send_email")
+            )
+
+    monkeypatch.setattr(lead_assistant, "resolve_workspace_reasoning_provider", lambda *_: Provider())
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(messages=[AssistantMessage(role="user", content="Make a follow-up sequence")]),
+        session=object(),
+        workspace=WorkspaceContext(workspace_id=uuid4(), actor_id="qa", permissions=frozenset({"agents.execute", "leads.edit", "workspace.manage"})),
+    )
+    assert captured["requested_workflow"] == "create_automation_draft"
+    assert result["action"]["kind"] == "none"
+    assert "sequence or playbook" in result["reply"]
+
+
 def test_workspace_chat_uses_minimal_context_for_standalone_thanks(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
