@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import socket
 from datetime import UTC, datetime
+from html import unescape
 from ipaddress import ip_address
 from pathlib import PurePath
 from typing import Any, Literal
@@ -305,6 +306,10 @@ def _link_preview(url: str, domain: str, redirects_remaining: int = 5) -> LinkPr
         raise HTTPException(status_code=422, detail="link does not provide HTML metadata")
     document = response.text[:200_000]
     title = _metadata(document, "og:title") or _metadata(document, "twitter:title")
+    if not title:
+        title_match = re.search(r"<title\b[^>]*>(.*?)</title\s*>", document, re.I | re.S)
+        if title_match:
+            title = unescape(re.sub(r"\s+", " ", title_match.group(1))).strip()[:500] or None
     description = _metadata(document, "og:description") or _metadata(document, "description")
     image_url = _metadata(document, "og:image")
     return LinkPreviewResponse(

@@ -129,6 +129,7 @@ def test_link_preview_connects_to_validated_ip_with_original_tls_hostname(
     assert observed["extensions"]["sni_hostname"] == "example.com"
     assert observed["options"]["trust_env"] is False
     assert result.url == "https://example.com/path"
+    assert result.title == "Example"
 
 
 def _seed(session: Session) -> tuple[WorkspaceORM, UserORM, UserORM, LeadORM]:
