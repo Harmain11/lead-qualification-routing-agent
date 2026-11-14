@@ -66,17 +66,54 @@ def test_link_preview_stops_redirect_loops(monkeypatch: pytest.MonkeyPatch) -> N
         def __exit__(self, *args: object) -> None:
             pass
 
-        def get(self, url: str, **kwargs: object) -> httpx.Response:
+        def get(self, url: httpx.URL, **kwargs: object) -> httpx.Response:
             return httpx.Response(
                 302, headers={"location": "/loop"}, request=httpx.Request("GET", url)
             )
 
     monkeypatch.setattr("lead_agent.api.routes.communication.httpx.Client", RedirectClient)
     monkeypatch.setattr(
+        "lead_agent.api.routes.communication._preview_address", lambda _: "93.184.216.34"
+    )
+    monkeypatch.setattr(
         "lead_agent.api.routes.communication._safe_preview_url", lambda url: (url, "example.com")
     )
     with pytest.raises(HTTPException, match="too many link preview redirects"):
         _link_preview("https://example.com/loop", "example.com")
+
+
+def test_link_preview_connects_to_validated_ip_with_original_tls_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    class Client:
+        def __init__(self, **kwargs: object) -> None:
+            observed["options"] = kwargs
+
+        def __enter__(self) -> Client:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def get(self, url: httpx.URL, **kwargs: object) -> httpx.Response:
+            observed.update(url=url, **kwargs)
+            return httpx.Response(
+                200, headers={"content-type": "text/html"}, text="<title>Example</title>",
+                request=httpx.Request("GET", url),
+            )
+
+    monkeypatch.setattr("lead_agent.api.routes.communication.httpx.Client", Client)
+    monkeypatch.setattr(
+        "lead_agent.api.routes.communication._preview_address", lambda _: "93.184.216.34"
+    )
+    result = _link_preview("https://example.com/path", "example.com")
+    assert str(observed["url"]) == "https://93.184.216.34/path"
+    assert observed["headers"]["Host"] == "example.com"
+    assert observed["extensions"]["sni_hostname"] == "example.com"
+    assert observed["options"]["trust_env"] is False
+    assert result.url == "https://example.com/path"
 
 
 def _seed(session: Session) -> tuple[WorkspaceORM, UserORM, UserORM, LeadORM]:

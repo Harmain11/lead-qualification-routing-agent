@@ -231,13 +231,7 @@ def _actor(workspace: WorkspaceContext) -> UUID:
     return workspace.user_id
 
 
-def _safe_preview_url(value: str) -> tuple[str, str]:
-    parsed = urlparse(value.strip())
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise HTTPException(status_code=422, detail="a public HTTP(S) URL is required")
-    hostname = parsed.hostname.lower().rstrip(".")
-    if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
-        raise HTTPException(status_code=422, detail="local URLs cannot be previewed")
+def _preview_address(hostname: str) -> str:
     try:
         addresses = {ip_address(hostname)}
     except ValueError:
@@ -248,15 +242,25 @@ def _safe_preview_url(value: str) -> tuple[str, str]:
             }
         except socket.gaierror as error:
             raise HTTPException(status_code=422, detail="link host cannot be resolved") from error
-    if not addresses or any(
-        address.is_private
-        or address.is_loopback
-        or address.is_link_local
-        or address.is_reserved
-        or address.is_unspecified
-        for address in addresses
-    ):
+    if not addresses or any(not address.is_global or address.is_multicast for address in addresses):
         raise HTTPException(status_code=422, detail="private URLs cannot be previewed")
+    return str(sorted(addresses, key=lambda address: (address.version, int(address)))[0])
+
+
+def _safe_preview_url(value: str) -> tuple[str, str]:
+    parsed = urlparse(value.strip())
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise HTTPException(status_code=422, detail="a public HTTP(S) URL is required")
+    hostname = parsed.hostname.lower().rstrip(".")
+    if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
+        raise HTTPException(status_code=422, detail="local URLs cannot be previewed")
+    try:
+        port = parsed.port
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="invalid link port") from error
+    if parsed.username is not None or parsed.password is not None or port not in (None, 80, 443):
+        raise HTTPException(status_code=422, detail="unsupported link address")
+    _preview_address(hostname)
     return parsed.geturl(), hostname
 
 
@@ -270,9 +274,19 @@ def _metadata(document: str, property_name: str) -> str | None:
 
 
 def _link_preview(url: str, domain: str, redirects_remaining: int = 5) -> LinkPreviewResponse:
+    address = _preview_address(domain)
+    parsed = urlparse(url)
+    host_header = f"[{domain}]" if ":" in domain else domain
+    if parsed.port is not None:
+        host_header = f"{host_header}:{parsed.port}"
+    pinned_url = httpx.URL(url).copy_with(host=address)
     try:
-        with httpx.Client(timeout=3.0, follow_redirects=False) as client:
-            response = client.get(url, headers={"User-Agent": "CorralLinkPreview/1.0"})
+        with httpx.Client(timeout=3.0, follow_redirects=False, trust_env=False) as client:
+            response = client.get(
+                pinned_url,
+                headers={"User-Agent": "CorralLinkPreview/1.0", "Host": host_header},
+                extensions={"sni_hostname": domain},
+            )
     except httpx.HTTPError as error:
         raise HTTPException(status_code=422, detail="link metadata is unavailable") from error
     if response.is_redirect:
