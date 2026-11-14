@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -11,6 +12,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from lead_agent.domain.configuration import IcpConfig, RoutingConfig, load_icp, load_routing
 from lead_agent.domain.crm import CrmConfig, load_crm_config
+
+
+def _vercel_public_url(local_default: str) -> str:
+    """Use Vercel's trusted deployment hostname when no public URL is configured.
+
+    Vercel exposes these host-only variables to serverless functions.  Without
+    this fallback, preview deployments send OAuth users back to localhost after
+    a successful provider callback.
+    """
+
+    hostname = os.environ.get("VERCEL_BRANCH_URL") or os.environ.get("VERCEL_URL")
+    return f"https://{hostname}" if hostname else local_default
 
 
 class Settings(BaseSettings):
@@ -126,8 +139,12 @@ class Settings(BaseSettings):
     secret_store_key_version: str = "v1"
     secret_store_previous_keys: str = "{}"
     oauth_broker: str = "development"
-    integration_public_base_url: str = "http://localhost:8001"
-    frontend_public_base_url: str = "http://localhost:5173"
+    integration_public_base_url: str = Field(
+        default_factory=lambda: _vercel_public_url("http://localhost:8001")
+    )
+    frontend_public_base_url: str = Field(
+        default_factory=lambda: _vercel_public_url("http://localhost:5173")
+    )
     google_client_id: str = ""
     google_client_secret: str = ""
     calendly_client_id: str = ""

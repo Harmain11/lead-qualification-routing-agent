@@ -84,6 +84,19 @@ def test_valid_production_configuration_has_explicit_security_boundaries() -> No
     assert settings.secret_store_provider == "managed"
 
 
+def test_vercel_preview_uses_its_deployment_url_for_oauth_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("VERCEL_BRANCH_URL", "corral-preview-abc.vercel.app")
+    monkeypatch.delenv("INTEGRATION_PUBLIC_BASE_URL", raising=False)
+    monkeypatch.delenv("FRONTEND_PUBLIC_BASE_URL", raising=False)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.integration_public_base_url == "https://corral-preview-abc.vercel.app"
+    assert settings.frontend_public_base_url == "https://corral-preview-abc.vercel.app"
+
+
 def test_gmail_and_explicit_local_vm_redis_are_supported_in_production() -> None:
     settings = production_settings(
         email_provider="gmail", email_smtp_host="", email_from="",
