@@ -57,6 +57,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [mentionQuery, setMentionQuery] = useState<{ start: number; end: number; query: string } | null>(null);
   const [leadIds, setLeadIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState<"project" | "channel" | "dm" | "group" | null>(null);
   const [newMemberIds, setNewMemberIds] = useState<string[]>([]);
@@ -64,6 +65,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [mobileConversationsOpen, setMobileConversationsOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<CommunicationMessage[]>([]);
   const [notifications, setNotifications] = useState<CommunicationNotification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const [threadRoot, setThreadRoot] = useState<CommunicationMessage | null>(null);
   const [threadReplies, setThreadReplies] = useState<CommunicationMessage[]>([]);
   const [threadText, setThreadText] = useState("");
@@ -267,7 +269,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
 
   async function remind(messageId: string) {
     const dueAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-    try { await createCommunicationReminder(messageId, dueAt); }
+    try { await createCommunicationReminder(messageId, dueAt); setNotice("Reminder set for one hour from now."); }
     catch (reason) { setError(reason instanceof Error ? reason.message : "Could not set the reminder."); }
   }
 
@@ -308,7 +310,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     <header className="communication-header">
       <div><span className="eyebrow">Workspace collaboration</span><h1>Communication</h1><p>Share lead context, coordinate work, and keep decisions with the team.</p></div>
       <div className="communication-header-actions">
-        <button className="button-quiet communication-notifications" onClick={() => void readNotifications()} aria-label="Mark communication notifications as read">Alerts{notifications.filter((item) => !item.read_at).length ? ` · ${notifications.filter((item) => !item.read_at).length}` : ""}</button>
+        <button className="button-quiet communication-notifications" onClick={() => setShowNotifications((open) => !open)} aria-expanded={showNotifications} aria-controls="communication-alerts">Alerts{notifications.filter((item) => !item.read_at).length ? ` · ${notifications.filter((item) => !item.read_at).length}` : ""}</button>
         {!browserAlertsEnabled && <button className="button-quiet" onClick={() => void enableBrowserAlerts()}>Enable alerts</button>}
         {can(permissions, "communication.manage") && <button className="secondary-button" onClick={() => setShowCreate("project")}>New project</button>}
         {can(permissions, "communication.create") && <button className="secondary-button" onClick={() => setShowCreate("dm")}>New message</button>}
@@ -316,7 +318,9 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
         {can(permissions, "communication.create") && <button className="primary-button" onClick={() => setShowCreate("channel")}>New channel</button>}
       </div>
     </header>
+    {showNotifications && <section id="communication-alerts" className="communication-alerts" aria-label="Communication alerts"><div className="communication-alerts-head"><div><strong>Alerts</strong><p>Mentions, replies, messages and reminders</p></div><button type="button" className="button-quiet" disabled={!notifications.some((item) => !item.read_at)} onClick={() => void readNotifications()}>Mark all read</button></div>{notifications.length ? <ul>{notifications.map((item) => <li key={item.id}><span className={item.read_at ? "communication-alert-dot is-read" : "communication-alert-dot"} aria-hidden="true" /><div><strong>{item.kind === "mention" ? "You were mentioned" : item.kind === "thread_reply" ? "New thread reply" : item.kind === "dm" ? "New direct message" : item.kind === "reminder" ? "Message reminder" : "Communication update"}</strong><time>{time(item.created_at)}</time></div>{!item.read_at && <span className="communication-alert-unread">Unread</span>}</li>)}</ul> : <p className="communication-alerts-empty">No alerts yet.</p>}</section>}
     {error && <div className="api-error" role="alert">{error}</div>}
+    {notice && <div className="communication-notice" role="status">{notice}<button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification"><Icon name="close" size={16} /></button></div>}
     <button type="button" className="communication-mobile-toggle" aria-expanded={mobileConversationsOpen} aria-controls="communication-conversations" onClick={() => setMobileConversationsOpen((open) => !open)}><Icon name="sidebar" size={17} /> {mobileConversationsOpen ? "Hide conversations" : "Show conversations"}<span>{data.conversations.length}</span></button>
     <div className="communication-layout">
       <aside id="communication-conversations" className={`communication-sidebar${mobileConversationsOpen ? " is-mobile-open" : ""}`}>
