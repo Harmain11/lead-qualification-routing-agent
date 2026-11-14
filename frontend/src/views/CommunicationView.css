@@ -13,6 +13,14 @@
 .conversation-button:hover, .conversation-button.active { background: var(--surface); color: var(--tint-text); }
 .conversation-button.active { font-weight: 700; box-shadow: 0 1px 4px rgba(20,57,45,.1); }
 .conversation-button span { color: var(--tint-text); font-weight: 700; }
+.communication-member { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--label-2); font: inherit; text-align: left; cursor: pointer; }
+.communication-member:hover, .communication-member.active { background: var(--surface); color: var(--tint-text); }
+.communication-member.active { font-weight: 700; box-shadow: 0 1px 4px rgba(20,57,45,.1); }
+.communication-member:disabled { opacity: .6; cursor: default; }
+.communication-member-avatar { display: grid; place-items: center; flex: 0 0 28px; height: 28px; border-radius: 8px; background: var(--surface); color: var(--tint-text); font-size: 12px; font-weight: 700; }
+.communication-member-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.communication-member small { margin-left: auto; font-size: 11px; }
+.communication-members-empty { margin: 8px 10px; color: var(--label-2); font-size: 12px; line-height: 1.5; }
 .communication-project { display: grid; gap: 4px; padding: 8px 5px; font-size: 13px; }
 .communication-project small { color: var(--label-2); overflow-wrap: anywhere; }
 .communication-search-results { display: grid; gap: 4px; margin-top: 8px; }

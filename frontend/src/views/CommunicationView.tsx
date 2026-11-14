@@ -61,6 +61,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState<"project" | "channel" | "dm" | "group" | null>(null);
   const [newMemberIds, setNewMemberIds] = useState<string[]>([]);
+  const [openingMemberId, setOpeningMemberId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [mobileConversationsOpen, setMobileConversationsOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<CommunicationMessage[]>([]);
@@ -150,6 +151,26 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(cursor, cursor); });
   }
   const selectedLeads = leads.filter((lead) => leadIds.includes(lead.id));
+
+  async function openDirectMessage(memberId: string) {
+    if (!data || openingMemberId) return;
+    const existing = data.conversations.find((item) => item.kind === "dm" && !item.is_archived && item.member_ids.includes(memberId) && item.member_ids.includes(data.active_user_id));
+    if (existing) {
+      setSelected(existing);
+      setMobileConversationsOpen(false);
+      return;
+    }
+    setOpeningMemberId(memberId);
+    try {
+      const conversation = await createCommunicationConversation({ kind: "dm", member_ids: [memberId] });
+      setData((current) => current ? { ...current, conversations: [conversation, ...current.conversations] } : current);
+      setSelected(conversation);
+      setMobileConversationsOpen(false);
+      setError(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not open the direct message.");
+    } finally { setOpeningMemberId(null); }
+  }
 
   async function send(event: FormEvent) {
     event.preventDefault();
@@ -241,12 +262,15 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     const description = String(form.get("description") || "").trim();
     const memberId = String(form.get("member_id") || "");
     const projectId = String(form.get("project_id") || "") || undefined;
+    if (showCreate === "dm") {
+      setShowCreate(null);
+      await openDirectMessage(memberId);
+      return;
+    }
     try {
       if (showCreate === "project") await createCommunicationProject({ name, description });
       else {
-        await createCommunicationConversation(showCreate === "dm"
-          ? { kind: "dm", member_ids: [memberId] }
-          : showCreate === "group"
+        await createCommunicationConversation(showCreate === "group"
             ? { kind: "group_dm", member_ids: newMemberIds }
             : { kind: "channel", name, description, project_id: projectId, member_ids: newMemberIds });
       }
@@ -329,8 +353,14 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
         {searchResults.length > 0 && <div className="communication-search-results">{searchResults.map((message) => <button key={message.id} onClick={() => { const conversation = data.conversations.find((item) => item.id === message.conversation_id); if (conversation) setSelected(conversation); setSearch(""); setSearchResults([]); }}><b>{message.author.display_name}</b><span>{message.plaintext}</span></button>)}</div>}
         <div className="communication-side-head"><span>Projects</span>{can(permissions, "communication.manage") && <button onClick={() => setShowCreate("project")} aria-label="Create project">+</button>}</div>
         {grouped.map(({ project, conversations }) => <div className="communication-project" key={project.id}><b title={project.description}>{project.name}</b>{project.description && <small>{project.description}</small>}{conversations.map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => { setSelected(conversation); setMobileConversationsOpen(false); }} />)}</div>)}
-        <div className="communication-side-head"><span>Channels & direct messages</span>{can(permissions, "communication.create") && <button onClick={() => setShowCreate("channel")} aria-label="Create channel">+</button>}</div>
-        {ungrouped.map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => { setSelected(conversation); setMobileConversationsOpen(false); }} />)}
+        <div className="communication-side-head"><span>Channels & group messages</span>{can(permissions, "communication.create") && <button onClick={() => setShowCreate("channel")} aria-label="Create channel">+</button>}</div>
+        {ungrouped.filter((conversation) => conversation.kind !== "dm").map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => { setSelected(conversation); setMobileConversationsOpen(false); }} />)}
+        <div className="communication-side-head"><span>Direct messages</span></div>
+        {data.members.filter((member) => member.id !== data.active_user_id).map((member) => {
+          const conversation = data.conversations.find((item) => item.kind === "dm" && !item.is_archived && item.member_ids.includes(member.id) && item.member_ids.includes(data.active_user_id));
+          return <button key={member.id} type="button" className={`communication-member${conversation && conversation.id === selected?.id ? " active" : ""}`} onClick={() => void openDirectMessage(member.id)} disabled={!!openingMemberId || (!conversation && !can(permissions, "communication.create"))} aria-label={`Message ${member.display_name}`}><span className="communication-member-avatar" aria-hidden="true">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="communication-member-name">{member.display_name}</span>{openingMemberId === member.id && <small>Opening…</small>}</button>;
+        })}
+        {data.members.length <= 1 && <p className="communication-members-empty">Workspace members will appear here.</p>}
       </aside>
       <main className="communication-main">
         {selected ? <>
