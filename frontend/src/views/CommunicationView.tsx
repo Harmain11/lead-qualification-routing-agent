@@ -144,7 +144,9 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
         }
       } catch (reason) {
         setMessages((current) => [...current, { ...created, attachments }]);
-        setError(reason instanceof Error ? `${reason.message} The message was sent; retry the attachment.` : "The message was sent, but an attachment could not be uploaded.");
+        setText(""); setMentionIds([]); setLeadIds([]);
+        setPendingAttachments((current) => current.slice(attachments.length));
+        setError(reason instanceof Error ? `${reason.message} The message was sent. Send the remaining attachment separately.` : "The message was sent. Send the remaining attachment separately.");
         return;
       }
       setMessages((current) => [...current, { ...created, attachments }]);
