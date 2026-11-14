@@ -78,6 +78,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recordingStartedAt = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const searchRequestRef = useRef(0);
 
   const refresh = async () => {
     setLoading(true);
@@ -307,9 +308,14 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
 
   async function runSearch(value: string) {
     setSearch(value);
+    const requestId = ++searchRequestRef.current;
     if (value.trim().length < 2) { setSearchResults([]); return; }
-    try { setSearchResults(await searchCommunicationMessages(value)); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : "Search is unavailable."); }
+    try {
+      const results = await searchCommunicationMessages(value);
+      if (requestId === searchRequestRef.current) setSearchResults(results);
+    } catch (reason) {
+      if (requestId === searchRequestRef.current) setError(reason instanceof Error ? reason.message : "Search is unavailable.");
+    }
   }
 
   async function replyInThread(event: FormEvent) {
@@ -350,7 +356,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
       <aside id="communication-conversations" className={`communication-sidebar${mobileConversationsOpen ? " is-mobile-open" : ""}`}>
         <div className="communication-sidebar-title"><div><strong>Conversations</strong><small>Your workspace, together</small></div><span className="communication-count">{data.conversations.length}</span></div>
         <label className="communication-search"><Icon name="search" size={17} /><span className="sr-only">Search communication</span><input value={search} onChange={(event) => void runSearch(event.target.value)} placeholder="Search messages" /></label>
-        {searchResults.length > 0 && <div className="communication-search-results">{searchResults.map((message) => <button key={message.id} onClick={() => { const conversation = data.conversations.find((item) => item.id === message.conversation_id); if (conversation) setSelected(conversation); setSearch(""); setSearchResults([]); }}><b>{message.author.display_name}</b><span>{message.plaintext}</span></button>)}</div>}
+        {searchResults.length > 0 && <div className="communication-search-results">{searchResults.map((message) => <button key={message.id} onClick={() => { const conversation = data.conversations.find((item) => item.id === message.conversation_id); if (conversation) setSelected(conversation); void runSearch(""); }}><b>{message.author.display_name}</b><span>{message.plaintext}</span></button>)}</div>}
         <div className="communication-side-head"><span>Projects</span>{can(permissions, "communication.manage") && <button onClick={() => setShowCreate("project")} aria-label="Create project">+</button>}</div>
         {grouped.map(({ project, conversations }) => <div className="communication-project" key={project.id}><b title={project.description}>{project.name}</b>{project.description && <small>{project.description}</small>}{conversations.map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => { setSelected(conversation); setMobileConversationsOpen(false); }} />)}</div>)}
         <div className="communication-side-head"><span>Channels & group messages</span>{can(permissions, "communication.create") && <button onClick={() => setShowCreate("channel")} aria-label="Create channel">+</button>}</div>
