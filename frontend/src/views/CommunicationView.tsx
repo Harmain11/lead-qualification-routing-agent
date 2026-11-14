@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import "./CommunicationView.css";
 
 import {
   createCommunicationConversation,
