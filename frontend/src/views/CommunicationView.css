@@ -34,7 +34,7 @@
 .formatted-message p { margin: 4px 0; }
 .message-thread-button { margin-top: 6px; border: 0; background: transparent; color: var(--tint-text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .message-composer { margin: 0 22px 22px; border: 1px solid var(--separator-strong); border-radius: 12px; background: var(--surface); }
-.message-composer textarea { box-sizing: border-box; width: 100%; min-height: 96px; resize: vertical; padding: 15px; border: 0; border-radius: 12px; outline-offset: -3px; background: transparent; color: var(--label); font: inherit; line-height: 1.5; }
+.communication-view .message-composer textarea { display: block; box-sizing: border-box; width: 100%; min-height: 96px; resize: vertical; padding: 15px; border: 0; border-radius: 12px 12px 0 0; outline-offset: -3px; background: transparent; box-shadow: none; color: var(--label); font: inherit; line-height: 1.5; }
 .composer-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px; border-top: 1px solid var(--separator-strong); }
 .formatting-tools { display: flex; gap: 2px; }
 .formatting-tools button { font-weight: 700; }
@@ -45,8 +45,7 @@
 .attachment-picker { display: inline-flex; align-items: center; padding: 8px; border-radius: 7px; color: var(--tint-text); font-size: 13px; font-weight: 700; cursor: pointer; }
 .attachment-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .attachment-picker:focus-within { outline: 2px solid var(--tint); outline-offset: 2px; }
-.composer-selected { flex: 1 1 100%; color: var(--label-2); font-size: 12px; overflow-wrap: anywhere; }
-.composer-selected:empty { display: none; }
+.composer-selected { color: var(--label-2); font-size: 12px; overflow-wrap: anywhere; }
 .composer-tools > .primary-button { margin-left: auto; }
 .communication-link-preview, .communication-lead-chip, .message-attachments a { display: inline-grid; gap: 4px; max-width: 100%; margin: 8px 8px 0 0; padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 9px; background: var(--surface-sunken); color: var(--label); text-align: left; text-decoration: none; overflow-wrap: anywhere; }
 .communication-link-preview span, .communication-link-preview small, .communication-lead-chip small { color: var(--label-2); }
