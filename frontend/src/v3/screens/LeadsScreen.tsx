@@ -905,6 +905,7 @@ const LeadRow = memo(function LeadRow({
   const sourceDetail = origin ? "CRM import" : lead.source_detail || "";
   const name = lead.full_name || "Unnamed lead";
   const [a, b] = lensValues(lead, lens);
+  const suppressRowClickUntil = useRef(0);
   return (
     <tr
       data-selected={checked || undefined}
@@ -916,6 +917,7 @@ const LeadRow = memo(function LeadRow({
         // done by clicking the row's non-interactive surface or its explicit
         // Open action.
         if (isLeadRowControl(event.target)) return;
+        if (Date.now() < suppressRowClickUntil.current) return;
         onInspect(lead.id);
       }}
       onKeyDown={(event) => {
@@ -955,9 +957,9 @@ const LeadRow = memo(function LeadRow({
               {sourceDetail && <small title={sourceDetail}>{sourceDetail}</small>}
             </span>
           </td>
-          <td className="c-b">
+          <td className="c-b" onClick={(event) => event.stopPropagation()}>
             {canManageRouting ? (
-              <select className="v-popup" aria-label={`Lead owner for ${lead.full_name}`} value={lead.owner_id || ""} disabled={savingAssignment || assignmentDisabled} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); onOwnerAssignmentChange(lead.id, event.target.value || null); }}>
+              <select className="v-popup" aria-label={`Lead owner for ${lead.full_name}`} value={lead.owner_id || ""} disabled={savingAssignment || assignmentDisabled} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()} onChange={(event) => { event.stopPropagation(); suppressRowClickUntil.current = Date.now() + 500; onOwnerAssignmentChange(lead.id, event.target.value || null); }}>
                 <option value="">Unassigned</option>
                 {lead.owner_id && !ownerAssignmentOptions.some((option) => option.user_id === lead.owner_id) && <option value={lead.owner_id}>{lead.owner_name || "Current owner"}</option>}
                 {ownerAssignmentOptions.map((option) => <option key={option.user_id} value={option.user_id}>{option.display_name}</option>)}
@@ -967,7 +969,7 @@ const LeadRow = memo(function LeadRow({
           <td className="c-status">
             {lead.has_unread_update ? <span className="v-status-chip v-status-updated">Needs review</span> : <span className="v-muted">Up to date</span>}
           </td>
-          <td className="c-sublead">
+          <td className="c-sublead" onClick={(event) => event.stopPropagation()}>
             {canManageRouting && lead.routing ? (
               <span className="v-two">
                 <select
@@ -977,7 +979,7 @@ const LeadRow = memo(function LeadRow({
                   disabled={savingAssignment || assignmentDisabled}
                   onPointerDown={(event) => event.stopPropagation()}
                   onClick={(event) => event.stopPropagation()}
-                  onChange={(event) => { event.stopPropagation(); onAssignmentChange(lead.id, event.target.value || null); }}
+                  onChange={(event) => { event.stopPropagation(); suppressRowClickUntil.current = Date.now() + 500; onAssignmentChange(lead.id, event.target.value || null); }}
                 >
                   <option value="">Unassigned</option>
                   {lead.routing.assigned_rep_id && !assignmentOptions.some((option) => option.user_id === lead.routing?.assigned_rep_id) && (

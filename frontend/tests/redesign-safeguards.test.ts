@@ -85,8 +85,8 @@ test("lead-row mutations cannot accidentally open the lead detail pane", async (
   assert.match(leads, /target instanceof Element/);
   assert.match(leads, /if \(isLeadRowControl\(event\.target\)\) return;/);
   assert.match(leads, /onPointerDown=\{\(event\) => event\.stopPropagation\(\)\}/);
-  assert.match(leads, /event\.stopPropagation\(\); onOwnerAssignmentChange/);
-  assert.match(leads, /event\.stopPropagation\(\); onAssignmentChange/);
+  assert.match(leads, /event\.stopPropagation\(\); suppressRowClickUntil\.current = Date\.now\(\) \+ 500; onOwnerAssignmentChange/);
+  assert.match(leads, /event\.stopPropagation\(\); suppressRowClickUntil\.current = Date\.now\(\) \+ 500; onAssignmentChange/);
 });
 
 test("the lead record keeps delete confirmation, CRM gating and enrolment gating", async () => {
