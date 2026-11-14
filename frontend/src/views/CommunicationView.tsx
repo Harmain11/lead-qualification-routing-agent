@@ -131,7 +131,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const ungrouped = useMemo(() => data?.conversations.filter((item) => !item.project_id) ?? [], [data]);
   const selectedMentions = data?.members.filter((member) => mentionIds.includes(member.id)) ?? [];
   const mentionSuggestions = mentionQuery && data && selected
-    ? data.members.filter((member) => selected.member_ids.includes(member.id) && member.id !== data.active_user_id && member.display_name.toLowerCase().includes(mentionQuery.query.toLowerCase())).slice(0, 8)
+    ? data.members.filter((member) => selected.member_ids.includes(member.id) && member.display_name.toLowerCase().includes(mentionQuery.query.toLowerCase()))
     : [];
 
   function updateComposer(value: string, cursor: number) {
