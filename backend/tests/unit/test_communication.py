@@ -5,7 +5,9 @@ from io import BytesIO
 from types import SimpleNamespace
 from uuid import uuid4
 
+import httpx
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
@@ -15,6 +17,8 @@ from lead_agent.api.routes.communication import (
     ConversationCreateRequest,
     MessageCreateRequest,
     ProjectCreateRequest,
+    _link_preview,
+    _safe_preview_url,
     bootstrap,
     create_conversation,
     create_message,
@@ -42,6 +46,37 @@ def test_all_standard_workspace_roles_can_participate_in_communication() -> None
         assert {"communication.view", "communication.create", "communication.attach"} <= (
             ROLE_PERMISSIONS[role]
         )
+
+
+@pytest.mark.parametrize("url", ["http://127.0.0.1/", "http://169.254.169.254/", "http://localhost/"])
+def test_link_previews_reject_local_and_metadata_addresses(url: str) -> None:
+    with pytest.raises(HTTPException) as error:
+        _safe_preview_url(url)
+    assert error.value.status_code == 422
+
+
+def test_link_preview_stops_redirect_loops(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RedirectClient:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def __enter__(self) -> RedirectClient:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def get(self, url: str, **kwargs: object) -> httpx.Response:
+            return httpx.Response(
+                302, headers={"location": "/loop"}, request=httpx.Request("GET", url)
+            )
+
+    monkeypatch.setattr("lead_agent.api.routes.communication.httpx.Client", RedirectClient)
+    monkeypatch.setattr(
+        "lead_agent.api.routes.communication._safe_preview_url", lambda url: (url, "example.com")
+    )
+    with pytest.raises(HTTPException, match="too many link preview redirects"):
+        _link_preview("https://example.com/loop", "example.com")
 
 
 def _seed(session: Session) -> tuple[WorkspaceORM, UserORM, UserORM, LeadORM]:
