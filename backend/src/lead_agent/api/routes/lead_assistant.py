@@ -1130,6 +1130,11 @@ def chat_with_workspace_assistant(
             "You asked for a sequence or playbook, not a standalone email. "
             "Please provide its goal and desired steps so I can prepare a paused draft for review."
         )
+    if result.action.kind == "coach_lead" and not re.search(
+        r"\b(?:coach|coaching)\b", latest_user_message, re.I
+    ):
+        result.action = WorkspaceAssistantAction()
+        result.reply = "Tell me which lead you want coaching for before I prepare that action."
     manual_review_mutations = {"complete_lead_manual_review"}
     lead_actions = lead_mutations | manual_review_mutations
     lead_write_query = (
@@ -1170,7 +1175,7 @@ def chat_with_workspace_assistant(
             except ValueError as error:
                 result.action = WorkspaceAssistantAction()
                 result.reply = f"The new lead draft needs clarification: {error}"[:3000]
-    if result.action.kind in {"open_lead", "open_deal_desk"} or result.action.kind in lead_actions:
+    if result.action.kind in {"open_lead", "open_deal_desk", "coach_lead"} or result.action.kind in lead_actions:
         target_id = result.action.target_id
         matched_lead_ids = {
             item.get("id")
@@ -1222,7 +1227,7 @@ def chat_with_workspace_assistant(
                 matched_leads, record_query
             )
             if mentioned_lead and (
-                result.action.kind in {"open_lead", "open_deal_desk"}
+                result.action.kind in {"open_lead", "open_deal_desk", "coach_lead"}
                 or (
                     result.action.kind in lead_actions
                     and _is_explicit_lead_write_request(lead_write_query)

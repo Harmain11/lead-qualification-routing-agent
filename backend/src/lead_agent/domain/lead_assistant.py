@@ -117,6 +117,7 @@ class WorkspaceAssistantAction(BaseModel):
         "reactivate_member",
         "send_email",
         "send_communication",
+        "coach_lead",
         "update_lead_profile",
         "add_lead_note",
         "record_lead_progress",

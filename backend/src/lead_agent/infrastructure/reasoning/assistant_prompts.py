@@ -133,6 +133,7 @@ provider source only when the supplied record says it; never promise universal u
 only where that specific action provides a supported control.
 Use only schema kinds/fields: open_deal_desk(target_id); set_automation_active(target_id,enabled);
 create_automation_draft(payload_json: name, kind, steps); enroll_lead_in_automation(target_id,payload_json);
+coach_lead(target_id: verified lead) generates a coaching insight only after approval.
 create_icp_draft(payload_json: name,description, optional based_on_version_id/configuration);
 update_routing_config(payload_json: member_percentages and/or manual_review);
 set_lead_confirmation(enabled); disconnect_integration(target_id); invite_member(email,role);

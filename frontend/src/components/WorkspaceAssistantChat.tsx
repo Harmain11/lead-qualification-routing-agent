@@ -1280,6 +1280,7 @@ export function WorkspaceAssistantChat({
                             : message.action.kind === "create_automation_draft" ? "Save as paused draft"
                             : message.action.kind === "enroll_lead_in_automation" ? "Enroll lead"
                             : message.action.kind === "send_communication" ? "Approve and send"
+                            : message.action.kind === "coach_lead" ? "Approve and generate coaching"
                             : "Approve and apply"}
                       </button>
                       {message.action.kind !== "open_module" && (

@@ -57,6 +57,14 @@ test("permissions are required before any lead-write API call", async () => {
   assert.equal(requests.length, 0);
 });
 
+test("coaching requires lead and agent access and uses the coaching endpoint", async () => {
+  requests.length = 0;
+  const action = proposal("coach_lead");
+  assert.equal(actions.canApplyWorkspaceAssistantAction(action, new Set(["leads.view"])), false);
+  await actions.applyWorkspaceAssistantAction(action, new Set(["leads.view", "agents.execute"]), noNavigate, noNavigate);
+  assert.match(requests[0].url, /\/v1\/intelligence\/leads\/.*\/coach$/);
+});
+
 test("approved workspace messages require access to the selected conversation", async () => {
   requests.length = 0;
   const previousFetch = globalThis.fetch;

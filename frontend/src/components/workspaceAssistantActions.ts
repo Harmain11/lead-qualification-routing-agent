@@ -231,6 +231,9 @@ export function canApplyWorkspaceAssistantAction(
   if (action.kind === "send_communication") {
     return Boolean(action.target_id && permissions.has("communication.view") && permissions.has("communication.create"));
   }
+  if (action.kind === "coach_lead") {
+    return Boolean(action.target_id && permissions.has("leads.view") && permissions.has("agents.execute"));
+  }
   const requiredPermission: Partial<Record<WorkspaceAssistantAction["kind"], string>> = {
     set_automation_active: "workspace.manage",
     create_icp_draft: "icp.manage",
@@ -257,6 +260,13 @@ export async function applyWorkspaceAssistantAction(
   onInspectLead: (leadId: string, section?: "deal") => void,
 ): Promise<string> {
   switch (action.kind) {
+    case "coach_lead": {
+      requirePermission(permissions, "leads.view");
+      requirePermission(permissions, "agents.execute");
+      if (!action.target_id) throw new Error("Choose a lead before generating coaching.");
+      await opsSave(`/v1/intelligence/leads/${encodeURIComponent(action.target_id)}/coach`, {});
+      return `Generated coaching for ${action.target_label || "the selected lead"}. Open Research & Coaching to review it.`;
+    }
     case "send_communication": {
       requirePermission(permissions, "communication.view");
       requirePermission(permissions, "communication.create");
