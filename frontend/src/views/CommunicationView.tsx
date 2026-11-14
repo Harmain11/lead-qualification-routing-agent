@@ -54,6 +54,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [leads, setLeads] = useState<Lead[]>([]);
   const [text, setText] = useState("");
   const [mentionIds, setMentionIds] = useState<string[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<{ start: number; end: number; query: string } | null>(null);
   const [leadIds, setLeadIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,6 +128,25 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const grouped = useMemo(() => (data?.projects ?? []).map((project) => ({ project, conversations: data?.conversations.filter((item) => item.project_id === project.id) ?? [] })), [data]);
   const ungrouped = useMemo(() => data?.conversations.filter((item) => !item.project_id) ?? [], [data]);
   const selectedMentions = data?.members.filter((member) => mentionIds.includes(member.id)) ?? [];
+  const mentionSuggestions = mentionQuery && data && selected
+    ? data.members.filter((member) => selected.member_ids.includes(member.id) && member.id !== data.active_user_id && member.display_name.toLowerCase().includes(mentionQuery.query.toLowerCase())).slice(0, 8)
+    : [];
+
+  function updateComposer(value: string, cursor: number) {
+    setText(value);
+    const match = value.slice(0, cursor).match(/(?:^|\s)@([^\s@]*)$/);
+    setMentionQuery(match ? { start: cursor - match[1].length - 1, end: cursor, query: match[1] } : null);
+  }
+
+  function insertMention(member: CommunicationBootstrap["members"][number]) {
+    if (!mentionQuery) return;
+    const insertion = `@${member.display_name} `;
+    const cursor = mentionQuery.start + insertion.length;
+    setText((current) => current.slice(0, mentionQuery.start) + insertion + current.slice(mentionQuery.end));
+    setMentionIds((current) => current.includes(member.id) ? current : [...current, member.id]);
+    setMentionQuery(null);
+    requestAnimationFrame(() => { composerRef.current?.focus(); composerRef.current?.setSelectionRange(cursor, cursor); });
+  }
   const selectedLeads = leads.filter((lead) => leadIds.includes(lead.id));
 
   async function send(event: FormEvent) {
@@ -147,13 +167,13 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
         }
       } catch (reason) {
         setMessages((current) => [...current, { ...created, attachments }]);
-        setText(""); setMentionIds([]); setLeadIds([]);
+        setText(""); setMentionIds([]); setMentionQuery(null); setLeadIds([]);
         setPendingAttachments((current) => current.slice(attachments.length));
         setError(reason instanceof Error ? `${reason.message} The message was sent. Send the remaining attachment separately.` : "The message was sent. Send the remaining attachment separately.");
         return;
       }
       setMessages((current) => [...current, { ...created, attachments }]);
-      setText(""); setMentionIds([]); setLeadIds([]); setPendingAttachments([]); setError(null);
+      setText(""); setMentionIds([]); setMentionQuery(null); setLeadIds([]); setPendingAttachments([]); setError(null);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Message could not be sent."); }
   }
 
@@ -313,7 +333,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
           <header className="conversation-header"><div className="conversation-heading"><div className="conversation-heading-icon" aria-hidden="true">{selected.kind === "channel" ? "#" : <Icon name="team" size={22} />}</div><div><span>{selected.kind === "channel" ? "CHANNEL" : "DIRECT MESSAGE"}</span><h2>{conversationLabel(selected, data.members)}</h2><p>{selected.description || "Private workspace conversation"}</p></div></div><div className="conversation-meta"><span><Icon name="team" size={15} /> {selected.member_ids.length} {selected.member_ids.length === 1 ? "member" : "members"}</span>{selected.primary_lead && <LeadChip lead={selected.primary_lead} onOpen={() => onOpenLead(selected.primary_lead!.id)} />}</div></header>
           <div className="message-list" aria-live="polite">{messages.length ? messages.map((message) => <article className="message" key={message.id}><div className="message-avatar" aria-hidden="true">{message.author.display_name.slice(0, 1).toUpperCase()}</div><div><header><b>{message.author.display_name}</b><time>{time(message.created_at)}</time>{message.is_pinned && <span className="message-pin">Pinned</span>}<button className="message-pin-button" onClick={() => void pin(message.id)} aria-label={`${message.is_pinned ? "Unpin" : "Pin"} message from ${message.author.display_name}`}><Icon name="pin" size={16} /></button><button className="message-pin-button" onClick={() => void remind(message.id)} aria-label={`Remind me about message from ${message.author.display_name}`}><Icon name="clock" size={16} /></button></header><FormattedMessage text={message.plaintext} /><MessageLinkPreview text={message.plaintext} /><MessageAttachments message={message} />{message.mentioned_user_ids.length > 0 && <div className="message-tags">{message.mentioned_user_ids.map((id) => <span key={id}>@{data.members.find((member) => member.id === id)?.display_name || "member"}</span>)}</div>}{message.leads.map((lead) => <LeadChip key={lead.id} lead={lead} onOpen={() => onOpenLead(lead.id)} />)}<button className="message-thread-button" onClick={() => setThreadRoot(message)}>Reply in thread</button></div></article>) : <div className="conversation-empty"><div className="communication-empty-content"><span className="communication-empty-icon"><Icon name="team" size={25} /></span><strong>Start the conversation</strong><p>Bring your team together here. Share an update, a lead, or an idea to get things moving.</p></div></div>}</div>
           {can(permissions, "communication.create") && <form className="message-composer" onSubmit={(event) => void send(event)}>
-            <textarea ref={composerRef} value={text} onChange={(event) => setText(event.target.value)} placeholder={`Message ${conversationLabel(selected, data.members)}`} aria-label="Message text" />
+            <div className="composer-input-wrap"><textarea ref={composerRef} value={text} onChange={(event) => updateComposer(event.target.value, event.target.selectionStart)} onKeyDown={(event) => { if (event.key === "Escape" && mentionQuery) { event.preventDefault(); setMentionQuery(null); } else if (event.key === "ArrowDown" && mentionSuggestions.length) { event.preventDefault(); document.querySelector<HTMLButtonElement>("#communication-mention-suggestions button")?.focus(); } }} placeholder={`Message ${conversationLabel(selected, data.members)}`} aria-label="Message text" aria-autocomplete="list" aria-controls={mentionSuggestions.length ? "communication-mention-suggestions" : undefined} />{mentionSuggestions.length > 0 && <div id="communication-mention-suggestions" className="composer-mention-suggestions" role="listbox" aria-label="Mention a conversation member">{mentionSuggestions.map((member) => <button key={member.id} type="button" role="option" aria-selected="false" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(member)}><span>{member.display_name.slice(0, 1).toUpperCase()}</span><div><strong>{member.display_name}</strong><small>{member.email}</small></div></button>)}</div>}</div>
             <div className="composer-tools">
               <div className="formatting-tools" aria-label="Text formatting"><button type="button" aria-label="Bold" title="Bold" onClick={() => formatSelection("**")}><Icon name="bold" size={16} /></button><button type="button" aria-label="Italic" title="Italic" onClick={() => formatSelection("_")}><Icon name="italic" size={16} /></button><button type="button" aria-label="Underline" title="Underline" onClick={() => formatSelection("__")}><Icon name="underline" size={16} /></button><button type="button" aria-label="Strikethrough" title="Strikethrough" onClick={() => formatSelection("~~")}><s>S</s></button><button type="button" aria-label="Bulleted list" title="Bulleted list" onClick={() => formatSelection("- ", "")}><Icon name="listBullets" size={16} /></button><button type="button" aria-label="To-do list" title="To-do list" onClick={() => formatSelection("- [ ] ", "")}>☐</button><button type="button" aria-label="Insert link" title="Insert link" onClick={formatLink}><Icon name="link" size={16} /></button></div>
               <details name="communication-composer-picker"><summary>@ Mention</summary><div className="composer-popover">{data.members.filter((member) => selected.member_ids.includes(member.id)).map((member) => <label key={member.id}><input type="checkbox" checked={mentionIds.includes(member.id)} onChange={() => setMentionIds((current) => current.includes(member.id) ? current.filter((id) => id !== member.id) : [...current, member.id])} /> {member.display_name}</label>)}</div></details>
