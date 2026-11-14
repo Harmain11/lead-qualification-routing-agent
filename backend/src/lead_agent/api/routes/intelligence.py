@@ -72,7 +72,7 @@ def research(
 ) -> Any:
     try:
         return research_company(
-            session, owned_company(session, workspace.workspace_id, company_id), workspace.actor_id
+            session, owned_company(session, workspace, company_id), workspace.actor_id
         )
     except ValueError as error:
         raise HTTPException(409, str(error)) from error
@@ -143,7 +143,7 @@ def review(
     if request.approve and row.kind == "research":
         if row.company_id is None:
             raise HTTPException(409, "This research has no company record")
-        company = owned_company(session, workspace.workspace_id, row.company_id)
+        company = owned_company(session, workspace, row.company_id)
         source = row.content.get("sources", [{}])[0].get("url")
         if not company.website_reviewed or company.website != source:
             raise HTTPException(

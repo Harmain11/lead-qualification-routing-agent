@@ -86,19 +86,21 @@ def advanced_analytics(
     def utc_value(value: datetime) -> datetime:
         return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
 
-    usd_won = sum(
-        float(recorded_outcome(lead).closed_revenue or 0)
-        for lead in won
-        if recorded_outcome(lead).currency == "USD"
-        and recorded_outcome(lead).closed_at is not None
-        and month_start <= utc_value(recorded_outcome(lead).closed_at) <= now
-    )
     current_leads = list(
         session.scalars(
             select(LeadORM)
             .where(LeadORM.workspace_id == workspace_id, *scope_filter)
             .options(selectinload(LeadORM.outcome))
         )
+    )
+    usd_won = sum(
+        float(recorded_outcome(lead).closed_revenue or 0)
+        for lead in current_leads
+        if lead.outcome
+        and recorded_outcome(lead).pipeline_stage == "closed_won"
+        and recorded_outcome(lead).currency == "USD"
+        and recorded_outcome(lead).closed_at is not None
+        and month_start <= utc_value(recorded_outcome(lead).closed_at) <= now
     )
     current_lead_ids = [lead.id for lead in current_leads]
     deals = {
