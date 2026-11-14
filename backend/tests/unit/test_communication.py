@@ -23,6 +23,7 @@ from lead_agent.api.routes.communication import (
     search_messages,
     upload_attachment,
 )
+from lead_agent.domain.rbac import ROLE_PERMISSIONS
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
@@ -34,6 +35,13 @@ from lead_agent.infrastructure.db.models import (
     WorkspaceORM,
 )
 from lead_agent.settings.config import Settings
+
+
+def test_all_standard_workspace_roles_can_participate_in_communication() -> None:
+    for role in ("owner", "admin", "sales_manager", "sales_rep", "viewer"):
+        assert {"communication.view", "communication.create", "communication.attach"} <= (
+            ROLE_PERMISSIONS[role]
+        )
 
 
 def _seed(session: Session) -> tuple[WorkspaceORM, UserORM, UserORM, LeadORM]:

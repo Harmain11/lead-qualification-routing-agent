@@ -516,6 +516,8 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
             "leads.view",
             "communication.view",
             "communication.search",
+            "communication.create",
+            "communication.attach",
             "analytics.view",
             "manual_review.view",
             "routing.view",
