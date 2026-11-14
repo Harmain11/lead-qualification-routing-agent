@@ -77,11 +77,15 @@
 .communication-empty-content p { margin: 0; font-size: 13px; line-height: 1.6; }
 .communication-voice, .communication-send { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .communication-view button:focus-visible, .communication-view summary:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
+.communication-mobile-toggle { display: none; }
 @media (max-width: 760px) {
   .communication-view { padding-top: 24px; }
   .communication-header-actions { width: 100%; }
   .communication-layout { grid-template-columns: minmax(0, 1fr); }
-  .communication-sidebar { max-height: 240px; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--separator-strong); }
+  .communication-mobile-toggle { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; margin: 0 0 10px; padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 10px; background: var(--surface); color: var(--label); font: inherit; font-weight: 600; text-align: left; }
+  .communication-mobile-toggle span { margin-left: auto; color: var(--label-2); }
+  .communication-sidebar { display: none; max-height: 240px; overflow-y: auto; border-right: 0; border-bottom: 1px solid var(--separator-strong); }
+  .communication-sidebar.is-mobile-open { display: block; }
   .conversation-header, .message-list { padding: 16px; }
   .message-composer { margin: 0 12px 12px; }
 }

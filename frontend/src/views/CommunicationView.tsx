@@ -60,6 +60,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [showCreate, setShowCreate] = useState<"project" | "channel" | "dm" | "group" | null>(null);
   const [newMemberIds, setNewMemberIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
+  const [mobileConversationsOpen, setMobileConversationsOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<CommunicationMessage[]>([]);
   const [notifications, setNotifications] = useState<CommunicationNotification[]>([]);
   const [threadRoot, setThreadRoot] = useState<CommunicationMessage | null>(null);
@@ -296,15 +297,16 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
       </div>
     </header>
     {error && <div className="api-error" role="alert">{error}</div>}
+    <button type="button" className="communication-mobile-toggle" aria-expanded={mobileConversationsOpen} aria-controls="communication-conversations" onClick={() => setMobileConversationsOpen((open) => !open)}><Icon name="sidebar" size={17} /> {mobileConversationsOpen ? "Hide conversations" : "Show conversations"}<span>{data.conversations.length}</span></button>
     <div className="communication-layout">
-      <aside className="communication-sidebar">
+      <aside id="communication-conversations" className={`communication-sidebar${mobileConversationsOpen ? " is-mobile-open" : ""}`}>
         <div className="communication-sidebar-title"><div><strong>Conversations</strong><small>Your workspace, together</small></div><span className="communication-count">{data.conversations.length}</span></div>
         <label className="communication-search"><Icon name="search" size={17} /><span className="sr-only">Search communication</span><input value={search} onChange={(event) => void runSearch(event.target.value)} placeholder="Search messages" /></label>
         {searchResults.length > 0 && <div className="communication-search-results">{searchResults.map((message) => <button key={message.id} onClick={() => { const conversation = data.conversations.find((item) => item.id === message.conversation_id); if (conversation) setSelected(conversation); setSearch(""); setSearchResults([]); }}><b>{message.author.display_name}</b><span>{message.plaintext}</span></button>)}</div>}
         <div className="communication-side-head"><span>Projects</span>{can(permissions, "communication.manage") && <button onClick={() => setShowCreate("project")} aria-label="Create project">+</button>}</div>
-        {grouped.map(({ project, conversations }) => <div className="communication-project" key={project.id}><b title={project.description}>{project.name}</b>{project.description && <small>{project.description}</small>}{conversations.map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => setSelected(conversation)} />)}</div>)}
+        {grouped.map(({ project, conversations }) => <div className="communication-project" key={project.id}><b title={project.description}>{project.name}</b>{project.description && <small>{project.description}</small>}{conversations.map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => { setSelected(conversation); setMobileConversationsOpen(false); }} />)}</div>)}
         <div className="communication-side-head"><span>Channels & direct messages</span>{can(permissions, "communication.create") && <button onClick={() => setShowCreate("channel")} aria-label="Create channel">+</button>}</div>
-        {ungrouped.map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => setSelected(conversation)} />)}
+        {ungrouped.map((conversation) => <ConversationButton key={conversation.id} conversation={conversation} active={selected?.id === conversation.id} members={data.members} onClick={() => { setSelected(conversation); setMobileConversationsOpen(false); }} />)}
       </aside>
       <main className="communication-main">
         {selected ? <>
