@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from pydantic import Field, field_validator
-from sqlalchemy import Select, func, inspect, or_, select, update
+from sqlalchemy import Select, delete, func, inspect, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -39,6 +39,7 @@ from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.calling import CallRecordORM
 from lead_agent.infrastructure.db.models import (
     AgentToolAuditORM,
+    CrmSyncORM,
     LeadFollowUpEmailORM,
     LeadORM,
     LeadOutcomeORM,
@@ -544,6 +545,9 @@ def apply_retention(
         if lead.source_event is not None:
             lead.source_event.raw_payload = {}
             lead.source_event.error_message = "Lead payload removed by reviewed retention policy"
+        session.execute(delete(CrmSyncORM).where(CrmSyncORM.lead_id == lead.id))
+        session.execute(delete(RoutingDecisionORM).where(RoutingDecisionORM.lead_id == lead.id))
+        session.delete(lead)
     audit_operation(
         session,
         workspace.workspace_id,

@@ -323,7 +323,9 @@ def test_graph_rejects_loops_and_unreachable_nodes():
 def test_note_versions_preserve_teammate_edits_and_presence_expires(ops):
     from lead_agent.infrastructure.db.operations import LeadPresenceORM
 
-    session, client, workspace, _, lead, *_ = ops
+    session, client, workspace, _, lead, _, member = ops
+    member.role = workspace.role
+    session.commit()
     note_id = uuid4()
     path = f"/v1/collaboration/leads/{lead.id}/notes/{note_id}"
     assert client.put(path, json={"body": "First", "version": 0}).status_code == 200
@@ -429,10 +431,12 @@ def test_retention_deletes_graph_but_preserves_independent_contacts(ops):
     lead.updated_at = datetime.now(UTC) - timedelta(days=40)
     session.commit()
     plan = client.get("/v1/ops/retention").json()
+    assert str(lead_id) in plan["lead_ids"], plan
     response = client.post(
         "/v1/ops/retention/apply", json={"proof": plan["proof"], "confirm_permanent_deletion": True}
     )
     assert response.status_code == 200, response.text
+    assert response.json()["deleted"] == 1, response.json()
     session.expire_all()
     assert session.get(LeadORM, lead_id) is None
     assert session.scalar(select(func.count()).select_from(LeadNoteORM)) == 0
