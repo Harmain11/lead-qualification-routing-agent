@@ -18,6 +18,7 @@ from lead_agent.api.routes.communication import (
     MessageCreateRequest,
     ProjectCreateRequest,
     _link_preview,
+    _preview_address,
     _safe_preview_url,
     bootstrap,
     create_conversation,
@@ -53,6 +54,20 @@ def test_link_previews_reject_local_and_metadata_addresses(url: str) -> None:
     with pytest.raises(HTTPException) as error:
         _safe_preview_url(url)
     assert error.value.status_code == 422
+
+
+def test_link_preview_rejects_mixed_public_and_private_dns_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "lead_agent.api.routes.communication.socket.getaddrinfo",
+        lambda *args, **kwargs: [
+            (2, 1, 6, "", ("93.184.216.34", 0)),
+            (2, 1, 6, "", ("127.0.0.1", 0)),
+        ],
+    )
+    with pytest.raises(HTTPException, match="private URLs"):
+        _preview_address("example.com")
 
 
 def test_link_preview_stops_redirect_loops(monkeypatch: pytest.MonkeyPatch) -> None:
