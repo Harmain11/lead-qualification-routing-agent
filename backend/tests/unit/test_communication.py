@@ -25,6 +25,7 @@ from lead_agent.api.routes.communication import (
     create_conversation,
     create_message,
     create_project,
+    list_messages,
     pin_message,
     search_messages,
     upload_attachment,
@@ -314,6 +315,32 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
         pinned = pin_message(message.id, session, context)
         assert pinned.is_pinned is True
         assert [item.id for item in search_messages("review", session, context)] == [message.id]
+        reply = create_message(
+            conversation.id,
+            MessageCreateRequest(plaintext="I'll take a look", parent_message_id=message.id),
+            session,
+            teammate_context,
+        )
+        assert [item.id for item in list_messages(conversation.id, None, session, context)] == [
+            message.id
+        ]
+        replies = list_messages(conversation.id, message.id, session, context)
+        assert [item.id for item in replies] == [reply.id]
+        assert session.scalar(select(CommunicationNotificationORM).where(
+            CommunicationNotificationORM.message_id == reply.id,
+            CommunicationNotificationORM.recipient_id == owner.id,
+            CommunicationNotificationORM.kind == "thread_reply",
+        )) is not None
+        other = create_conversation(
+            ConversationCreateRequest(kind="channel", name="other"), session, context
+        )
+        with pytest.raises(HTTPException, match="thread parent"):
+            create_message(
+                other.id,
+                MessageCreateRequest(plaintext="Wrong channel", parent_message_id=message.id),
+                session,
+                context,
+            )
 
 
 def test_voice_attachment_is_private_and_added_to_its_message(monkeypatch) -> None:
