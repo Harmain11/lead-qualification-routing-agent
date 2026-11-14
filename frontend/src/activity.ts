@@ -71,5 +71,7 @@ export function mutationStatusMessage(url: string, result: unknown): { message: 
   if (url.includes("/disconnect")) return { message: "Disconnected.", kind: "success" };
   if (url.startsWith("/v1/email/drafts")) return { message: "Draft saved.", kind: "success" };
   if (url.includes("/draft")) return { message: "Draft ready. Review and edit it before sending.", kind: "success" };
-  return { message: serverMessage || "Saved.", kind: "success" };
+  // Domain records (including leads) can have a `message` containing the
+  // customer's full inquiry. Only explicit status responses provide feedback.
+  return { message: status && serverMessage ? serverMessage : "Saved.", kind: "success" };
 }
