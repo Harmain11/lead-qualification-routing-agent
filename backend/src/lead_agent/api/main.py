@@ -14,12 +14,14 @@ from lead_agent.api.routes import (
     analytics,
     auth,
     automations,
-    calling,
     calendar,
+    calling,
     collaboration,
+    communication,
     contact_records,
     crm,
     crm_inbound,
+    cron,
     deals,
     email,
     email_automation,
@@ -88,6 +90,8 @@ app.include_router(leads.router)
 app.include_router(meetings.router)
 app.include_router(meeting_management.router)
 app.include_router(calendar.router)
+app.include_router(communication.router)
+app.include_router(cron.router)
 app.include_router(notifications.router)
 app.include_router(follow_up.router)
 app.include_router(email.router)

@@ -87,6 +87,8 @@ class Settings(BaseSettings):
     crm_inbound_page_size: int = 100
     cron_secret: str = Field(default="", repr=False, exclude=True)
     vercel_scheduled_sync_limit: int = 10
+    communication_attachment_max_bytes: int = 4 * 1024 * 1024
+    communication_reminder_scheduler_interval_seconds: int = 60
     outlook_initial_sync_days: int = 30
     icp_config_path: str = "config/icp.example.yaml"
     routing_config_path: str = "config/routing.example.yaml"

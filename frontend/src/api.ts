@@ -58,6 +58,13 @@ import type {
   GmailSendRequest,
   GmailSendResult,
   GmailSendAccount,
+  CommunicationAttachment,
+  CommunicationBootstrap,
+  CommunicationConversation,
+  CommunicationLinkPreview,
+  CommunicationMessage,
+  CommunicationNotification,
+  CommunicationProject,
 } from "./types";
 
 export const DEMO_WORKSPACE_ID = "00000000-0000-0000-0000-000000000006";
@@ -1349,6 +1356,92 @@ export function updateMemberSlackLink(memberId: string, slackMemberId: string | 
 export function syncLeadGmailConversation(leadId: string): Promise<GmailConversationSyncResult> {
   return jsonRequest<GmailConversationSyncResult>(`/v1/leads/${leadId}/gmail-conversation/sync`, { method: "POST" });
 }
+
+export const getCommunicationBootstrap = () => jsonRequest<CommunicationBootstrap>("/v1/communication/bootstrap");
+
+export const createCommunicationProject = (input: { name: string; description: string }) =>
+  jsonRequest<CommunicationProject>("/v1/communication/projects", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+export const createCommunicationConversation = (input: {
+  kind: CommunicationConversation["kind"];
+  name?: string;
+  description?: string;
+  project_id?: string | null;
+  member_ids?: string[];
+  primary_lead_id?: string | null;
+}) => jsonRequest<CommunicationConversation>("/v1/communication/conversations", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(input),
+});
+
+export const listCommunicationMessages = (conversationId: string, parentMessageId?: string | null) =>
+  jsonRequest<CommunicationMessage[]>(`/v1/communication/conversations/${conversationId}/messages${parentMessageId ? `?parent_message_id=${encodeURIComponent(parentMessageId)}` : ""}`);
+
+export const uploadCommunicationAttachment = (
+  messageId: string,
+  input: { file: File; kind: "file" | "voice"; duration_ms?: number },
+) => {
+  const form = new FormData();
+  form.set("file", input.file);
+  form.set("kind", input.kind);
+  if (input.duration_ms !== undefined) form.set("duration_ms", String(input.duration_ms));
+  return request<CommunicationAttachment>(`/v1/communication/messages/${messageId}/attachments`, {
+    method: "POST",
+    body: form,
+  });
+};
+
+export const createCommunicationMessage = (conversationId: string, input: {
+  plaintext: string;
+  body?: Record<string, unknown>;
+  mentioned_user_ids?: string[];
+  lead_ids?: string[];
+  parent_message_id?: string | null;
+}) => jsonRequest<CommunicationMessage>(`/v1/communication/conversations/${conversationId}/messages`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify(input),
+});
+
+export const pinCommunicationMessage = (messageId: string) =>
+  jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}/pin`, { method: "POST" });
+
+export const unpinCommunicationMessage = (messageId: string) =>
+  jsonRequest<void>(`/v1/communication/messages/${messageId}/pin`, { method: "DELETE" });
+
+export const updateCommunicationMessage = (messageId: string, input: { plaintext: string; body?: Record<string, unknown> }) =>
+  jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+
+export const deleteCommunicationMessage = (messageId: string) =>
+  jsonRequest<void>(`/v1/communication/messages/${messageId}`, { method: "DELETE" });
+
+export const createCommunicationReminder = (messageId: string, dueAt: string) =>
+  jsonRequest<{ id: string }>(`/v1/communication/messages/${messageId}/reminders`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ due_at: dueAt }),
+  });
+
+export const listCommunicationNotifications = () =>
+  jsonRequest<CommunicationNotification[]>("/v1/communication/notifications");
+
+export const readCommunicationNotification = (notificationId: string) =>
+  jsonRequest<void>(`/v1/communication/notifications/${notificationId}/read`, { method: "POST" });
+
+export const searchCommunicationMessages = (query: string) =>
+  jsonRequest<CommunicationMessage[]>(`/v1/communication/search?query=${encodeURIComponent(query)}`);
+
+export const getCommunicationLinkPreview = (url: string) =>
+  jsonRequest<CommunicationLinkPreview>(`/v1/communication/link-preview?url=${encodeURIComponent(url)}`);
 
 export function retryConfirmedMeetingBooking(
   leadId: string,

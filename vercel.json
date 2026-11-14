@@ -16,6 +16,11 @@
       "schedule": "*/15 * * * *",
       "path": "/v1/internal/scheduled-sync",
       "requestMethod": "GET"
+    },
+    "communication-reminders": {
+      "schedule": "*/15 * * * *",
+      "path": "/v1/internal/cron",
+      "requestMethod": "GET"
     }
   },
   "rewrites": [

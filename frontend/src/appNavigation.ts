@@ -1,4 +1,4 @@
-export const appPages = ["dashboard", "leads", "email", "calendar", "contacts", "pipeline", "revenue", "performance", "agents", "analytics", "integrations", "dialer", "team", "review", "settings", "icp", "accounts", "intelligence", "automations", "policies", "compliance"] as const;
+export const appPages = ["dashboard", "leads", "email", "calendar", "communication", "contacts", "pipeline", "revenue", "performance", "agents", "analytics", "integrations", "dialer", "team", "review", "settings", "icp", "accounts", "intelligence", "automations", "policies", "compliance"] as const;
 export type AppPage = typeof appPages[number];
 export type NavigationSection = { id: string; label: string; permission?: string; view?: AppPage };
 

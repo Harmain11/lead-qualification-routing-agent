@@ -154,6 +154,7 @@ import {
 } from "./views/ProductViews";
 import type { AnalyticsBundle } from "./views/ProductViews";
 import { EdgeFadeNav } from "./v3/ui/useScrollEdges";
+import { CommunicationView } from "./views/CommunicationView";
 
 type View =
   | "dashboard"
@@ -175,7 +176,8 @@ type View =
   | "intelligence"
   | "automations"
   | "policies"
-  | "compliance";
+  | "compliance"
+  | "communication";
 // Team administration is opened from Settings and keeps the primary rail calm.
 type AppView = View | "icp";
 
@@ -190,6 +192,7 @@ const navigation: Array<{ id: View; label: string; group: string; icon: IconName
   { id: "email", label: "Inbox", group: "work", icon: "inbox" },
   { id: "calendar", label: "Calendar", group: "work", icon: "calendar" },
   { id: "dialer", label: "Calls", group: "work", icon: "calls" },
+  { id: "communication", label: "Communication", group: "work", icon: "inbox" },
   { id: "contacts", label: "Contacts", group: "records", icon: "contacts" },
   { id: "accounts", label: "Companies", group: "records", icon: "companies" },
   { id: "performance", label: "Team Performance", group: "insights", icon: "trophy" },
@@ -1711,6 +1714,12 @@ function App() {
                   <div className="v-page" data-width="wide">
                     <EmailWorkspace canSend={can(workspacePermissions, "leads.edit")} onOpenIntegrations={() => navigate("integrations", "gmail")} />
                   </div>
+                )}
+                {view === "communication" && (
+                  <CommunicationView
+                    permissions={workspacePermissions}
+                    onOpenLead={(id) => { void handleInspectLead(id); setView("leads"); }}
+                  />
                 )}
                 {view === "calendar" && (
                   <CalendarWorkspace

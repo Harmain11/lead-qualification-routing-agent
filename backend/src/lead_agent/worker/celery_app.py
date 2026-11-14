@@ -29,6 +29,8 @@ from lead_agent.domain.models import QualificationResult
 from lead_agent.domain.normalization import normalize_lead
 from lead_agent.domain.scoring import qualify_lead
 from lead_agent.infrastructure.db.models import (
+    CommunicationNotificationORM,
+    CommunicationReminderORM,
     LeadORM,
     ProviderConnectionORM,
     ProviderLifecycleAuditORM,
@@ -118,6 +120,10 @@ celery_app.conf.update(
         "process-pending-meeting-email-confirmations": {
             "task": "lead_agent.process_pending_meeting_email_confirmations",
             "schedule": settings.crm_inbound_scheduler_interval_seconds,
+        },
+        "dispatch-due-communication-reminders": {
+            "task": "lead_agent.dispatch_due_communication_reminders",
+            "schedule": settings.communication_reminder_scheduler_interval_seconds,
         },
     },
 )
@@ -218,6 +224,46 @@ def dispatch_due_crm_inbound_syncs() -> int:
     for state_id in state_ids:
         run_scheduled_crm_inbound_sync.delay(state_id)
     return len(state_ids)
+
+
+def run_due_crm_inbound_syncs_inline(limit: int = 25) -> int:
+    """Run due CRM synchronizations inside an authenticated Vercel schedule."""
+    with get_session_factory()() as session:
+        states = claim_due_inbound_sync_states(session, limit=limit)
+        state_ids = [str(state.id) for state in states]
+    for state_id in state_ids:
+        run_scheduled_crm_inbound_sync.run(state_id)
+    return len(state_ids)
+
+
+@celery_app.task(name="lead_agent.dispatch_due_communication_reminders")  # type: ignore[untyped-decorator]
+def dispatch_due_communication_reminders() -> int:
+    """Turn due private reminders into one in-app notification each."""
+    now = datetime.now(UTC)
+    with get_session_factory()() as session:
+        reminders = list(session.scalars(
+            select(CommunicationReminderORM)
+            .where(
+                CommunicationReminderORM.completed_at.is_(None),
+                CommunicationReminderORM.due_at <= now,
+            )
+            .order_by(CommunicationReminderORM.due_at).limit(100).with_for_update(skip_locked=True)
+        ))
+        for reminder in reminders:
+            exists = session.scalar(select(CommunicationNotificationORM.id).where(
+                CommunicationNotificationORM.recipient_id == reminder.recipient_id,
+                CommunicationNotificationORM.message_id == reminder.message_id,
+                CommunicationNotificationORM.kind == "reminder",
+            ))
+            if exists is None:
+                session.add(CommunicationNotificationORM(
+                    id=uuid4(), workspace_id=reminder.workspace_id,
+                    recipient_id=reminder.recipient_id, message_id=reminder.message_id,
+                    kind="reminder", created_at=now,
+                ))
+            reminder.completed_at = now
+        session.commit()
+    return len(reminders)
 
 
 @celery_app.task(
