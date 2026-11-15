@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import "./CommunicationView.css";
 import { Icon } from "../v3/ui/Icon";
+import { confirmAction } from "../v3/ui/confirm";
 
 import {
   createCommunicationConversation,
@@ -9,6 +10,8 @@ import {
   createCommunicationReminder,
   createCommunicationTask,
   updateCommunicationTask,
+  updateCommunicationMessage,
+  deleteCommunicationMessage,
   summarizeCommunicationThread,
   apiUrl,
   getCommunicationBootstrap,
@@ -77,6 +80,9 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [notificationTarget, setNotificationTarget] = useState<string | null>(null);
   const [threadRoot, setThreadRoot] = useState<CommunicationMessage | null>(null);
   const [taskMessage, setTaskMessage] = useState<CommunicationMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<CommunicationMessage | null>(null);
+  const [editingText, setEditingText] = useState("");
+  const [editBusy, setEditBusy] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
   const [threadReplies, setThreadReplies] = useState<CommunicationMessage[]>([]);
   const [threadText, setThreadText] = useState("");
@@ -386,6 +392,31 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not update the task."); }
   }
 
+  async function saveMessageEdit(event: FormEvent) {
+    event.preventDefault();
+    if (!editingMessage || !editingText.trim() || editBusy) return;
+    setEditBusy(true);
+    try {
+      const text = editingText.trim();
+      const updated = await updateCommunicationMessage(editingMessage.id, {
+        plaintext: text, body: { version: 1, type: "markdown", text },
+      });
+      setMessages((current) => current.map((message) => message.id === updated.id ? updated : message));
+      setEditingMessage(null);
+      setError(null);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not edit the message."); }
+    finally { setEditBusy(false); }
+  }
+
+  async function deleteMessage(message: CommunicationMessage) {
+    if (!(await confirmAction({ title: "Delete this message?", message: "The message and its attachments and tasks will be removed.", confirmLabel: "Delete message", tone: "danger" }))) return;
+    try {
+      await deleteCommunicationMessage(message.id);
+      setMessages((current) => current.map((item) => item.id === message.id ? { ...item, plaintext: "This message was deleted.", body: { version: 1, type: "deleted" }, deleted_at: new Date().toISOString(), attachments: [], tasks: [], mentioned_user_ids: [], leads: [] } : item));
+      setError(null);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not delete the message."); }
+  }
+
   async function readNotifications() {
     const unread = notifications.filter((item) => !item.read_at);
     try {
@@ -450,6 +481,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     </header>
     {showNotifications && <section id="communication-alerts" className="communication-alerts" aria-label="Communication alerts"><div className="communication-alerts-head"><div><strong>Alerts</strong><p>Mentions, replies, messages and reminders</p></div><button type="button" className="button-quiet" disabled={!notifications.some((item) => !item.read_at)} onClick={() => void readNotifications()}>Mark all read</button></div>{notifications.length ? <ul>{notifications.map((item) => <li key={item.id}><span className={item.read_at ? "communication-alert-dot is-read" : "communication-alert-dot"} aria-hidden="true" /><div><strong>{item.kind === "mention" ? "You were mentioned" : item.kind === "thread_reply" ? "New thread reply" : item.kind === "dm" ? "New direct message" : item.kind === "task" ? "Task assigned to you" : item.kind === "reminder" ? "Message reminder" : "Communication update"}</strong><time>{time(item.created_at)}</time></div>{!item.read_at && <span className="communication-alert-unread">Unread</span>}<button type="button" className="button-quiet" onClick={() => void openNotification(item)}>Open</button></li>)}</ul> : <p className="communication-alerts-empty">No alerts yet.</p>}</section>}
     {error && <div className="api-error" role="alert">{error}</div>}
+    {editingMessage && <div className="team-modal-backdrop"><form className="team-modal panel" onSubmit={(event) => void saveMessageEdit(event)}><div className="team-modal-head"><div><span className="eyebrow">Communication</span><h2>Edit message</h2><p>Existing mentions and linked leads stay attached.</p></div><button type="button" className="modal-close" onClick={() => setEditingMessage(null)} aria-label="Close">×</button></div><label className="team-field"><span>Message</span><textarea value={editingText} onChange={(event) => setEditingText(event.target.value)} maxLength={20000} required /></label><div className="team-modal-actions"><button type="button" className="button-quiet" disabled={editBusy} onClick={() => setEditingMessage(null)}>Cancel</button><button className="primary-button" disabled={editBusy || !editingText.trim()}>{editBusy ? "Saving…" : "Save changes"}</button></div></form></div>}
     {notice && <div className="communication-notice" role="status">{notice}<button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification"><Icon name="close" size={16} /></button></div>}
     <button type="button" className="communication-mobile-toggle" aria-expanded={mobileConversationsOpen} aria-controls="communication-conversations" onClick={() => setMobileConversationsOpen((open) => !open)}><Icon name="sidebar" size={17} /> {mobileConversationsOpen ? "Hide conversations" : "Show conversations"}<span>{data.conversations.length}</span></button>
     <div className="communication-layout">
@@ -471,7 +503,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
       <main className="communication-main">
         {selected ? <>
           <header className="conversation-header"><div className="conversation-heading"><div className="conversation-heading-icon" aria-hidden="true">{selected.kind === "channel" ? "#" : <Icon name="team" size={22} />}</div><div><span>{selected.kind === "channel" ? "CHANNEL" : "DIRECT MESSAGE"}</span><h2>{conversationLabel(selected, data.members)}</h2><p>{selected.description || "Private workspace conversation"}</p></div></div><div className="conversation-meta"><span><Icon name="team" size={15} /> {selected.member_ids.length} {selected.member_ids.length === 1 ? "member" : "members"}</span>{selected.primary_lead && <LeadChip lead={selected.primary_lead} onOpen={() => onOpenLead(selected.primary_lead!.id)} />}</div></header>
-          <div className="message-list" aria-live="polite">{messages.length ? messages.map((message) => <article className="message" id={`communication-message-${message.id}`} key={message.id}><div className="message-avatar" aria-hidden="true">{message.author.display_name.slice(0, 1).toUpperCase()}</div><div><header><b>{message.author.display_name}</b><time>{time(message.created_at)}</time>{message.is_pinned && <span className="message-pin">Pinned</span>}<button className="message-pin-button" onClick={() => void pin(message.id)} aria-label={`${message.is_pinned ? "Unpin" : "Pin"} message from ${message.author.display_name}`}><Icon name="pin" size={16} /></button><button className="message-pin-button" onClick={() => void remind(message.id)} aria-label={`Remind me about message from ${message.author.display_name}`}><Icon name="clock" size={16} /></button></header><FormattedMessage text={message.plaintext} /><MessageLinkPreview text={message.plaintext} /><MessageAttachments message={message} />{message.mentioned_user_ids.length > 0 && <div className="message-tags">{message.mentioned_user_ids.map((id) => <span key={id}>@{data.members.find((member) => member.id === id)?.display_name || "member"}</span>)}</div>}{message.leads.map((lead) => <LeadChip key={lead.id} lead={lead} onOpen={() => onOpenLead(lead.id)} />)}{selected.kind === "dm" && message.author.id === data.active_user_id && <span className="message-read-status">{message.seen_by?.length ? "Seen" : "Not seen yet"}</span>}{message.tasks?.map((task) => <div className="communication-task" key={task.id}><label><input type="checkbox" checked={!!task.completed_at} disabled={task.assignee_id !== data.active_user_id && task.created_by !== data.active_user_id && !can(permissions, "communication.moderate")} onChange={(event) => void toggleTask(message.id, task.id, event.target.checked)} /> <span>{task.title}</span></label><small>{data.members.find((member) => member.id === task.assignee_id)?.display_name || "Member"}{task.due_at ? ` · Due ${new Date(task.due_at).toLocaleString()}` : ""}</small></div>)}{!message.deleted_at && can(permissions, "communication.create") && <button className="message-thread-button" onClick={() => setTaskMessage(message)}>Create task</button>}<button className="message-thread-button" onClick={() => setThreadRoot(message)}>Reply in thread</button></div></article>) : <div className="conversation-empty"><div className="communication-empty-content"><span className="communication-empty-icon"><Icon name="team" size={25} /></span><strong>Start the conversation</strong><p>Bring your team together here. Share an update, a lead, or an idea to get things moving.</p></div></div>}</div>
+          <div className="message-list" aria-live="polite">{messages.length ? messages.map((message) => <article className="message" id={`communication-message-${message.id}`} key={message.id}><div className="message-avatar" aria-hidden="true">{message.author.display_name.slice(0, 1).toUpperCase()}</div><div><header><b>{message.author.display_name}</b><time>{time(message.created_at)}</time>{message.is_pinned && <span className="message-pin">Pinned</span>}<button className="message-pin-button" onClick={() => void pin(message.id)} aria-label={`${message.is_pinned ? "Unpin" : "Pin"} message from ${message.author.display_name}`}><Icon name="pin" size={16} /></button><button className="message-pin-button" onClick={() => void remind(message.id)} aria-label={`Remind me about message from ${message.author.display_name}`}><Icon name="clock" size={16} /></button></header><FormattedMessage text={message.plaintext} /><MessageLinkPreview text={message.plaintext} /><MessageAttachments message={message} />{message.mentioned_user_ids.length > 0 && <div className="message-tags">{message.mentioned_user_ids.map((id) => <span key={id}>@{data.members.find((member) => member.id === id)?.display_name || "member"}</span>)}</div>}{message.leads.map((lead) => <LeadChip key={lead.id} lead={lead} onOpen={() => onOpenLead(lead.id)} />)}{selected.kind === "dm" && message.author.id === data.active_user_id && <span className="message-read-status">{message.seen_by?.length ? "Seen" : "Not seen yet"}</span>}{message.tasks?.map((task) => <div className="communication-task" key={task.id}><label><input type="checkbox" checked={!!task.completed_at} disabled={task.assignee_id !== data.active_user_id && task.created_by !== data.active_user_id && !can(permissions, "communication.moderate")} onChange={(event) => void toggleTask(message.id, task.id, event.target.checked)} /> <span>{task.title}</span></label><small>{data.members.find((member) => member.id === task.assignee_id)?.display_name || "Member"}{task.due_at ? ` · Due ${new Date(task.due_at).toLocaleString()}` : ""}</small></div>)}{!message.deleted_at && can(permissions, "communication.create") && <button className="message-thread-button" onClick={() => setTaskMessage(message)}>Create task</button>}<button className="message-thread-button" onClick={() => setThreadRoot(message)}>Reply in thread</button>{!message.deleted_at && can(permissions, "communication.create") && (message.author.id === data.active_user_id || can(permissions, "communication.moderate")) && <><button className="message-thread-button" onClick={() => { setEditingMessage(message); setEditingText(message.plaintext); }}>Edit</button><button className="message-thread-button" onClick={() => void deleteMessage(message)}>Delete</button></>}</div></article>) : <div className="conversation-empty"><div className="communication-empty-content"><span className="communication-empty-icon"><Icon name="team" size={25} /></span><strong>Start the conversation</strong><p>Bring your team together here. Share an update, a lead, or an idea to get things moving.</p></div></div>}</div>
           {can(permissions, "communication.create") && <form className="message-composer" onSubmit={(event) => void send(event)}>
             <div className="composer-input-wrap"><textarea ref={composerRef} value={text} onChange={(event) => updateComposer(event.target.value, event.target.selectionStart)} onKeyDown={(event) => { if (event.key === "Escape" && mentionQuery) { event.preventDefault(); setMentionQuery(null); } else if (event.key === "ArrowDown" && mentionSuggestions.length) { event.preventDefault(); document.querySelector<HTMLButtonElement>("#communication-mention-suggestions button")?.focus(); } }} placeholder={`Message ${conversationLabel(selected, data.members)}`} aria-label="Message text" aria-autocomplete="list" aria-controls={mentionSuggestions.length ? "communication-mention-suggestions" : undefined} />{mentionSuggestions.length > 0 && <div id="communication-mention-suggestions" className="composer-mention-suggestions" role="listbox" aria-label="Mention a conversation member">{mentionSuggestions.map((member) => <button key={member.id} type="button" role="option" aria-selected="false" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(member)}><span>{member.display_name.slice(0, 1).toUpperCase()}</span><div><strong>{member.display_name}</strong><small>{member.email}</small></div></button>)}</div>}</div>
             <div className="composer-tools">

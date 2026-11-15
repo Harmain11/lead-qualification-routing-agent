@@ -17,6 +17,7 @@ from starlette.datastructures import Headers, UploadFile
 from lead_agent.api.routes.communication import (
     ConversationCreateRequest,
     MessageCreateRequest,
+    MessageUpdateRequest,
     ProjectCreateRequest,
     ReadReceiptRequest,
     TaskCreateRequest,
@@ -30,12 +31,14 @@ from lead_agent.api.routes.communication import (
     create_message,
     create_message_task,
     create_project,
+    delete_message,
     list_messages,
     list_notifications,
     mark_conversation_read,
     pin_message,
     search_messages,
     summarize_thread,
+    update_message,
     update_message_task,
     upload_attachment,
 )
@@ -452,6 +455,45 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
                 session,
                 context,
             )
+
+
+def test_message_edits_and_deletes_require_author_and_remove_linked_metadata() -> None:
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace, owner, teammate, lead = _seed(session)
+        context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(owner.id), user_id=owner.id,
+            role="owner", permissions=frozenset({"communication.create", "leads.view"}),
+        )
+        other = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id,
+            role="sales_rep", permissions=frozenset({"communication.create"}),
+        )
+        conversation = create_conversation(
+            ConversationCreateRequest(kind="channel", name="qa", member_ids=[teammate.id]),
+            session, context,
+        )
+        message = create_message(
+            conversation.id,
+            MessageCreateRequest(
+                plaintext="Original", lead_ids=[lead.id], mentioned_user_ids=[teammate.id]
+            ),
+            session, context,
+        )
+        with pytest.raises(HTTPException) as denied:
+            update_message(message.id, MessageUpdateRequest(plaintext="Changed"), session, other)
+        assert denied.value.status_code == 403
+        updated = update_message(
+            message.id, MessageUpdateRequest(plaintext="Changed"), session, context
+        )
+        assert updated.plaintext == "Changed"
+        delete_message(message.id, session, context)
+        deleted = list_messages(conversation.id, None, session, context)[0]
+        assert deleted.plaintext == "This message was deleted."
+        assert deleted.leads == [] and deleted.mentioned_user_ids == []
 
 
 def test_voice_attachment_is_private_and_added_to_its_message(monkeypatch) -> None:

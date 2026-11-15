@@ -1265,6 +1265,15 @@ def delete_message(
     for attachment in attachments:
         session.delete(attachment)
     session.execute(delete(CommunicationTaskORM).where(CommunicationTaskORM.message_id == row.id))
+    session.execute(delete(CommunicationMessageMentionORM).where(
+        CommunicationMessageMentionORM.message_id == row.id
+    ))
+    session.execute(delete(CommunicationMessageLeadORM).where(
+        CommunicationMessageLeadORM.message_id == row.id
+    ))
+    session.execute(delete(CommunicationMessagePinORM).where(
+        CommunicationMessagePinORM.message_id == row.id
+    ))
     row.plaintext = "This message was deleted."
     row.body = {"version": 1, "type": "deleted"}
     row.deleted_at = datetime.now(UTC)
