@@ -31,6 +31,7 @@ from lead_agent.api.routes.communication import (
     create_message_task,
     create_project,
     list_messages,
+    list_notifications,
     mark_conversation_read,
     pin_message,
     search_messages,
@@ -354,6 +355,11 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
             message.id, TaskCreateRequest(title="Review lead", assignee_id=teammate.id),
             session, context,
         )
+        task_alert = next(
+            item for item in list_notifications(session, teammate_context) if item.kind == "task"
+        )
+        assert task_alert.message_id == message.id
+        assert task_alert.conversation_id == conversation.id
         done = update_message_task(
             task.id, TaskUpdateRequest(completed=True), session, teammate_context
         )

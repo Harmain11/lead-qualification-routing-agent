@@ -73,6 +73,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [searchResults, setSearchResults] = useState<CommunicationMessage[]>([]);
   const [notifications, setNotifications] = useState<CommunicationNotification[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationTarget, setNotificationTarget] = useState<string | null>(null);
   const [threadRoot, setThreadRoot] = useState<CommunicationMessage | null>(null);
   const [taskMessage, setTaskMessage] = useState<CommunicationMessage | null>(null);
   const [taskSaving, setTaskSaving] = useState(false);
@@ -157,6 +158,12 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     observer.observe(element);
     return () => observer.disconnect();
   }, [selected?.id, messages]);
+
+  useEffect(() => {
+    if (!notificationTarget) return;
+    const target = document.getElementById(`communication-message-${notificationTarget}`);
+    if (target) { target.scrollIntoView({ block: "center" }); setNotificationTarget(null); }
+  }, [messages, notificationTarget]);
 
   useEffect(() => {
     if (!threadRoot) { setThreadReplies([]); return; }
@@ -367,6 +374,21 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Notifications could not be updated."); }
   }
 
+  async function openNotification(item: CommunicationNotification) {
+    const conversation = data?.conversations.find((candidate) => candidate.id === item.conversation_id);
+    if (!conversation) { setError("This conversation is no longer available."); return; }
+    setSelected(conversation);
+    setNotificationTarget(item.message_id);
+    setShowNotifications(false);
+    setMobileConversationsOpen(false);
+    if (!item.read_at) {
+      try {
+        await readCommunicationNotification(item.id);
+        setNotifications((current) => current.map((notice) => notice.id === item.id ? { ...notice, read_at: new Date().toISOString() } : notice));
+      } catch { setError("The alert could not be marked as read."); }
+    }
+  }
+
   async function runSearch(value: string) {
     setSearch(value);
     const requestId = ++searchRequestRef.current;
@@ -406,7 +428,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
         {(can(permissions, "communication.create") || can(permissions, "communication.manage")) && <div className="communication-quick-actions"><button type="button" className="primary-button" aria-expanded={quickActionsOpen} onClick={() => setQuickActionsOpen((open) => !open)}>Quick actions</button>{quickActionsOpen && <div className="communication-quick-menu" role="group" aria-label="Quick actions">{can(permissions, "communication.create") && <><button type="button" onClick={() => { setShowCreate("dm"); setQuickActionsOpen(false); }}>New message</button><button type="button" onClick={() => { setShowCreate("group"); setQuickActionsOpen(false); }}>New group</button><button type="button" onClick={() => { setShowCreate("channel"); setQuickActionsOpen(false); }}>New channel</button></>}{can(permissions, "communication.manage") && <button type="button" onClick={() => { setShowCreate("project"); setQuickActionsOpen(false); }}>New project</button>}</div>}</div>}
       </div>
     </header>
-    {showNotifications && <section id="communication-alerts" className="communication-alerts" aria-label="Communication alerts"><div className="communication-alerts-head"><div><strong>Alerts</strong><p>Mentions, replies, messages and reminders</p></div><button type="button" className="button-quiet" disabled={!notifications.some((item) => !item.read_at)} onClick={() => void readNotifications()}>Mark all read</button></div>{notifications.length ? <ul>{notifications.map((item) => <li key={item.id}><span className={item.read_at ? "communication-alert-dot is-read" : "communication-alert-dot"} aria-hidden="true" /><div><strong>{item.kind === "mention" ? "You were mentioned" : item.kind === "thread_reply" ? "New thread reply" : item.kind === "dm" ? "New direct message" : item.kind === "reminder" ? "Message reminder" : "Communication update"}</strong><time>{time(item.created_at)}</time></div>{!item.read_at && <span className="communication-alert-unread">Unread</span>}</li>)}</ul> : <p className="communication-alerts-empty">No alerts yet.</p>}</section>}
+    {showNotifications && <section id="communication-alerts" className="communication-alerts" aria-label="Communication alerts"><div className="communication-alerts-head"><div><strong>Alerts</strong><p>Mentions, replies, messages and reminders</p></div><button type="button" className="button-quiet" disabled={!notifications.some((item) => !item.read_at)} onClick={() => void readNotifications()}>Mark all read</button></div>{notifications.length ? <ul>{notifications.map((item) => <li key={item.id}><span className={item.read_at ? "communication-alert-dot is-read" : "communication-alert-dot"} aria-hidden="true" /><div><strong>{item.kind === "mention" ? "You were mentioned" : item.kind === "thread_reply" ? "New thread reply" : item.kind === "dm" ? "New direct message" : item.kind === "task" ? "Task assigned to you" : item.kind === "reminder" ? "Message reminder" : "Communication update"}</strong><time>{time(item.created_at)}</time></div>{!item.read_at && <span className="communication-alert-unread">Unread</span>}<button type="button" className="button-quiet" onClick={() => void openNotification(item)}>Open</button></li>)}</ul> : <p className="communication-alerts-empty">No alerts yet.</p>}</section>}
     {error && <div className="api-error" role="alert">{error}</div>}
     {notice && <div className="communication-notice" role="status">{notice}<button type="button" onClick={() => setNotice(null)} aria-label="Dismiss notification"><Icon name="close" size={16} /></button></div>}
     <button type="button" className="communication-mobile-toggle" aria-expanded={mobileConversationsOpen} aria-controls="communication-conversations" onClick={() => setMobileConversationsOpen((open) => !open)}><Icon name="sidebar" size={17} /> {mobileConversationsOpen ? "Hide conversations" : "Show conversations"}<span>{data.conversations.length}</span></button>

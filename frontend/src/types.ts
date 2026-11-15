@@ -80,6 +80,7 @@ export type CommunicationNotification = {
   id: string;
   kind: "mention" | "dm" | "thread_reply" | string;
   message_id: string;
+  conversation_id: string;
   read_at: string | null;
   created_at: string;
 };

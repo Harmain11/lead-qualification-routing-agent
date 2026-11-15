@@ -234,6 +234,7 @@ class CommunicationNotificationResponse(BaseModel):
     id: UUID
     kind: str
     message_id: UUID
+    conversation_id: UUID
     read_at: datetime | None
     created_at: datetime
 
@@ -782,6 +783,21 @@ def create_message_task(
         due_at=request.due_at, created_at=datetime.now(UTC),
     )
     session.add(task)
+    if request.assignee_id != task.created_by:
+        notification = session.scalar(select(CommunicationNotificationORM).where(
+            CommunicationNotificationORM.recipient_id == request.assignee_id,
+            CommunicationNotificationORM.message_id == message.id,
+            CommunicationNotificationORM.kind == "task",
+        ))
+        if notification is None:
+            session.add(CommunicationNotificationORM(
+                id=uuid4(), workspace_id=workspace.workspace_id,
+                recipient_id=request.assignee_id, message_id=message.id,
+                kind="task", created_at=task.created_at,
+            ))
+        else:
+            notification.read_at = None
+            notification.created_at = task.created_at
     session.commit()
     return TaskResponse.model_validate(task, from_attributes=True)
 
@@ -1219,8 +1235,17 @@ def list_notifications(
     workspace: WorkspaceContext = Depends(require_permission("communication.view")),
 ) -> list[CommunicationNotificationResponse]:
     actor_id = _actor(workspace)
-    rows = session.scalars(
-        select(CommunicationNotificationORM)
+    rows = session.execute(
+        select(CommunicationNotificationORM, CommunicationMessageORM.conversation_id)
+        .join(
+            CommunicationMessageORM,
+            CommunicationMessageORM.id == CommunicationNotificationORM.message_id,
+        )
+        .join(CommunicationConversationMemberORM, and_(
+            CommunicationConversationMemberORM.conversation_id
+            == CommunicationMessageORM.conversation_id,
+            CommunicationConversationMemberORM.user_id == actor_id,
+        ))
         .where(
             CommunicationNotificationORM.workspace_id == workspace.workspace_id,
             CommunicationNotificationORM.recipient_id == actor_id,
@@ -1228,9 +1253,10 @@ def list_notifications(
         .order_by(CommunicationNotificationORM.created_at.desc())
         .limit(100)
     )
-    return [
-        CommunicationNotificationResponse.model_validate(row, from_attributes=True) for row in rows
-    ]
+    return [CommunicationNotificationResponse(
+        id=row.id, kind=row.kind, message_id=row.message_id, conversation_id=conversation_id,
+        read_at=row.read_at, created_at=row.created_at,
+    ) for row, conversation_id in rows]
 
 
 @router.post("/notifications/{notification_id}/read", status_code=status.HTTP_204_NO_CONTENT)
