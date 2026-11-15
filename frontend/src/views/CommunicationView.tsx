@@ -497,8 +497,8 @@ function ConversationButton({ conversation, active, members, onClick }: { conver
   return <button className={`conversation-button ${active ? "active" : ""}`} onClick={onClick}><span>{conversation.kind === "channel" ? "#" : "•"}</span>{conversationLabel(conversation, members)}</button>;
 }
 
-function LeadChip({ lead, onOpen }: { lead: { full_name: string; company_name: string; qualification: string | null; source: string }; onOpen: () => void }) {
-  return <button className="communication-lead-chip" onClick={onOpen}><span>Lead</span><b>{lead.full_name}</b><small>{lead.company_name} · {lead.qualification || lead.source}</small></button>;
+function LeadChip({ lead, onOpen }: { lead: { full_name: string; company_name: string; qualification: string | null; source: string; owner_name: string | null; pipeline_stage: string | null }; onOpen: () => void }) {
+  return <button className="communication-lead-chip" onClick={onOpen}><span>Lead</span><b>{lead.full_name}</b><small>{lead.company_name} · {lead.qualification || lead.source}</small><small>{lead.owner_name ? `Owner: ${lead.owner_name}` : "Unassigned"}{lead.pipeline_stage ? ` · ${lead.pipeline_stage.replaceAll("_", " ")}` : ""}</small></button>;
 }
 
 function MemberPicker({ members, activeUserId, selectedIds, onChange }: { members: CommunicationBootstrap["members"]; activeUserId: string; selectedIds: string[]; onChange: (ids: string[]) => void }) {

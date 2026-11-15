@@ -10,6 +10,8 @@ export type CommunicationLeadReference = {
   company_name: string;
   qualification: string | null;
   source: string;
+  owner_name: string | null;
+  pipeline_stage: string | null;
 };
 
 export type CommunicationProject = {

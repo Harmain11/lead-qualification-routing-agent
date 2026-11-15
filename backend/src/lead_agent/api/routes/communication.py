@@ -32,6 +32,7 @@ from lead_agent.api.dependencies import (
     require_permission,
     require_permissions,
 )
+from lead_agent.application.lead_access import assert_lead_action
 from lead_agent.domain.auth import AuthenticatedIdentity
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.communication_attachments import (
@@ -105,6 +106,8 @@ class LeadReference(BaseModel):
     company_name: str
     qualification: str | None = None
     source: str
+    owner_name: str | None = None
+    pipeline_stage: str | None = None
 
 
 class ProjectResponse(BaseModel):
@@ -396,29 +399,35 @@ def _member_rows(
 
 
 def _lead_reference(
-    session: Session, workspace_id: UUID, lead_id: UUID | None
+    session: Session, workspace: WorkspaceContext, lead_id: UUID | None
 ) -> LeadReference | None:
     if lead_id is None:
         return None
     row = session.execute(
         select(LeadORM, QualificationResultORM)
         .outerjoin(QualificationResultORM, QualificationResultORM.lead_id == LeadORM.id)
-        .where(LeadORM.id == lead_id, LeadORM.workspace_id == workspace_id)
+        .where(LeadORM.id == lead_id, LeadORM.workspace_id == workspace.workspace_id)
     ).first()
     if row is None:
         return None
     lead, qualification = row
+    try:
+        assert_lead_action(session, workspace, lead, "view")
+    except HTTPException:
+        return None
     return LeadReference(
         id=lead.id,
         full_name=lead.full_name,
         company_name=lead.company_name,
         qualification=qualification.classification if qualification else None,
         source=lead.source,
+        owner_name=lead.current_owner.display_name if lead.current_owner else None,
+        pipeline_stage=lead.outcome.pipeline_stage if lead.outcome else None,
     )
 
 
 def _conversation_response(
-    session: Session, workspace_id: UUID, row: CommunicationConversationORM
+    session: Session, workspace: WorkspaceContext, row: CommunicationConversationORM
 ) -> ConversationResponse:
     return ConversationResponse(
         id=row.id,
@@ -426,7 +435,7 @@ def _conversation_response(
         kind=row.kind,
         name=row.name,
         description=row.description,
-        primary_lead=_lead_reference(session, workspace_id, row.primary_lead_id),
+        primary_lead=_lead_reference(session, workspace, row.primary_lead_id),
         is_archived=row.is_archived,
         member_ids=_members(session, row.id),
         updated_at=row.updated_at,
@@ -434,7 +443,7 @@ def _conversation_response(
 
 
 def _message_response(
-    session: Session, workspace_id: UUID, row: CommunicationMessageORM
+    session: Session, workspace: WorkspaceContext, row: CommunicationMessageORM
 ) -> MessageResponse:
     author = session.get(UserORM, row.author_id)
     if author is None:
@@ -471,7 +480,7 @@ def _message_response(
         leads=[
             reference
             for lead_id in lead_ids
-            if (reference := _lead_reference(session, workspace_id, lead_id))
+            if (reference := _lead_reference(session, workspace, lead_id))
         ],
         attachments=[_attachment_response(attachment) for attachment in attachments],
         tasks=[TaskResponse.model_validate(task, from_attributes=True) for task in session.scalars(
@@ -582,7 +591,7 @@ def bootstrap(
         active_user_id=workspace.user_id,
         projects=[ProjectResponse.model_validate(row, from_attributes=True) for row in projects],
         conversations=[
-            _conversation_response(session, workspace.workspace_id, row) for row in conversations
+            _conversation_response(session, workspace, row) for row in conversations
         ],
         members=[
             MemberSummary(id=user.id, display_name=user.display_name, email=user.email)
@@ -636,7 +645,7 @@ def create_conversation(
         raise HTTPException(status_code=422, detail="project not found")
     if (
         request.primary_lead_id is not None
-        and _lead_reference(session, workspace.workspace_id, request.primary_lead_id) is None
+        and _lead_reference(session, workspace, request.primary_lead_id) is None
     ):
         raise HTTPException(status_code=422, detail="lead not found")
     member_ids = set(request.member_ids)
@@ -682,7 +691,7 @@ def create_conversation(
         ]
     )
     session.commit()
-    return _conversation_response(session, workspace.workspace_id, row)
+    return _conversation_response(session, workspace, row)
 
 
 @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageResponse])
@@ -703,7 +712,7 @@ def list_messages(
             .order_by(CommunicationMessageORM.created_at)
         )
     )
-    return [_message_response(session, workspace.workspace_id, row) for row in rows]
+    return [_message_response(session, workspace, row) for row in rows]
 
 
 class ReadReceiptRequest(BaseModel):
@@ -941,6 +950,8 @@ def create_message(
     )
     if requested_lead_ids != existing_lead_ids:
         raise HTTPException(status_code=422, detail="one or more linked leads were not found")
+    if any(_lead_reference(session, workspace, lead_id) is None for lead_id in requested_lead_ids):
+        raise HTTPException(status_code=422, detail="one or more linked leads were not found")
     now = datetime.now(UTC)
     row = CommunicationMessageORM(
         id=uuid4(),
@@ -995,7 +1006,7 @@ def create_message(
     )
     conversation.updated_at = now
     session.commit()
-    return _message_response(session, workspace.workspace_id, row)
+    return _message_response(session, workspace, row)
 
 
 @router.post(
@@ -1171,7 +1182,7 @@ def pin_message(
             )
         )
         session.commit()
-    return _message_response(session, workspace.workspace_id, row)
+    return _message_response(session, workspace, row)
 
 
 @router.delete("/messages/{message_id}/pin", status_code=status.HTTP_204_NO_CONTENT)
@@ -1218,7 +1229,7 @@ def update_message(
     row.body = request.body
     row.edited_at = datetime.now(UTC)
     session.commit()
-    return _message_response(session, workspace.workspace_id, row)
+    return _message_response(session, workspace, row)
 
 
 @router.delete("/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1370,7 +1381,7 @@ def search_messages(
             .limit(50)
         )
     )
-    return [_message_response(session, workspace.workspace_id, row) for row in rows]
+    return [_message_response(session, workspace, row) for row in rows]
 
 
 @router.get("/link-preview", response_model=LinkPreviewResponse)
