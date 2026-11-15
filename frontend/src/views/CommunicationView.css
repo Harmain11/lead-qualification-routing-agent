@@ -129,3 +129,55 @@
   .conversation-header, .message-list { padding: 16px; }
   .message-composer { margin: 0 12px 12px; }
 }
+
+/* A calm, consistent hierarchy for busy conversations. */
+.communication-layout { grid-template-columns: minmax(220px, 260px) minmax(0, 1fr); }
+.communication-sidebar { padding: 20px 14px; }
+.communication-side-head { margin-top: 24px; }
+.conversation-button, .communication-member { transition: background-color 140ms ease, color 140ms ease; }
+.conversation-header { gap: 16px; }
+.conversation-heading > div:last-child { min-width: 0; }
+.message-list { padding-top: 18px; }
+.message { padding: 16px 0; }
+.message + .message { border-top: 1px solid var(--separator-strong); }
+.message > div:last-child { min-width: 0; }
+.message header { gap: 8px 10px; }
+.message header b { font-size: 14px; }
+.message-pin-button { min-width: 32px; min-height: 32px; }
+.message-thread-button { display: inline-flex; align-items: center; min-height: 34px; margin: 8px 6px 0 0; padding: 6px 9px; border: 1px solid var(--separator-strong); border-radius: 8px; background: var(--surface); line-height: 1.3; }
+.message-thread-button:hover { background: var(--surface-sunken); }
+.communication-task { gap: 6px; max-width: 520px; margin: 12px 0 4px; padding: 12px 14px; border-radius: 10px; }
+.communication-task label { align-items: flex-start; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.communication-task input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--tint); }
+.communication-task small { padding-left: 24px; line-height: 1.5; }
+.message-composer { box-shadow: 0 2px 8px rgba(20, 35, 45, .04); }
+.message-composer:focus-within { border-color: var(--tint); }
+.composer-tools { gap: 6px 10px; padding: 10px 12px; }
+.formatting-tools { flex-wrap: wrap; }
+.attachment-picker { gap: 6px; }
+.composer-selected { flex-basis: 100%; padding: 0 4px; }
+.communication-view .team-modal { width: min(100%, 560px); max-height: min(90vh, 780px); overflow-y: auto; }
+.communication-view .team-modal-head > div { min-width: 0; overflow-wrap: anywhere; }
+.communication-view .team-modal-head h2 { font-weight: 700; letter-spacing: -.025em; }
+.communication-view .team-modal .api-error { margin: 0 0 16px; }
+.communication-thread .team-modal-head p { max-height: 120px; overflow-y: auto; white-space: pre-wrap; }
+.communication-summary { gap: 10px; padding: 16px; }
+.communication-summary p { margin: 4px 0; line-height: 1.55; }
+.thread-replies { margin-top: 8px; }
+.thread-replies article { line-height: 1.5; overflow-wrap: anywhere; }
+.thread-replies time { margin-left: 10px; }
+.thread-replies p { white-space: pre-wrap; }
+@media (max-width: 760px) {
+  .communication-layout { grid-template-columns: minmax(0, 1fr); }
+  .communication-header { align-items: flex-start; gap: 16px; }
+  .communication-header-actions { align-items: center; }
+  .conversation-header, .message-list { padding: 16px; }
+  .message { gap: 10px; }
+  .message-thread-button { min-height: 40px; }
+  .formatting-tools { max-width: 100%; }
+  .composer-tools > .primary-button { margin-left: auto; }
+  .communication-view .team-modal { max-height: calc(100dvh - 20px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conversation-button, .communication-member { transition: none; }
+}
