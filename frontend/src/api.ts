@@ -1439,6 +1439,12 @@ export const summarizeCommunicationThread = (messageId: string) =>
     { activityToast: false },
   );
 
+export const recapCommunicationConversation = (conversationId: string) =>
+  jsonRequest<{ summary: string; message_count: number; truncated: boolean }>(
+    `/v1/communication/conversations/${conversationId}/recap`, { method: "POST" },
+    { activityToast: false },
+  );
+
 export const unpinCommunicationMessage = (messageId: string) =>
   jsonRequest<void>(`/v1/communication/messages/${messageId}/pin`, { method: "DELETE" });
 

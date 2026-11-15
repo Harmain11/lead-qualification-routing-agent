@@ -37,6 +37,7 @@ from lead_agent.api.routes.communication import (
     mark_conversation_read,
     pin_message,
     search_messages,
+    summarize_conversation,
     summarize_thread,
     update_message,
     update_message_task,
@@ -445,6 +446,12 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
         summary = summarize_thread(message.id, session, context)
         assert summary.message_count == 2
         assert len(captured["workspace_context"]["thread_messages"]) == 2
+        recap = summarize_conversation(conversation.id, session, context)
+        assert recap.message_count == 2
+        assert len(captured["workspace_context"]["conversation_messages"]) == 2
+        with pytest.raises(HTTPException) as denied_recap:
+            summarize_conversation(conversation.id, session, outsider)
+        assert denied_recap.value.status_code == 404
         with pytest.raises(HTTPException) as denied_summary:
             summarize_thread(message.id, session, outsider)
         assert denied_summary.value.status_code == 404

@@ -17,6 +17,8 @@
 .communication-summary > button { justify-self: start; }
 .communication-summary small { color: var(--label-2); }
 .communication-summary p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.communication-recap { padding: 8px 22px; border-bottom: 1px solid var(--separator-strong); }
+.communication-recap .communication-summary { margin: 4px 0 8px; }
 .communication-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 620px; overflow: hidden; border: 1px solid var(--separator-strong); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-card); }
 .communication-sidebar { min-width: 0; padding: 18px 12px; border-right: 1px solid var(--separator-strong); background: var(--surface-sunken); }
 .communication-search input { box-sizing: border-box; width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 9px; background: var(--surface); color: var(--label); font: inherit; }

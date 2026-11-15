@@ -13,6 +13,7 @@ import {
   updateCommunicationMessage,
   deleteCommunicationMessage,
   summarizeCommunicationThread,
+  recapCommunicationConversation,
   apiUrl,
   getCommunicationBootstrap,
   getCommunicationLinkPreview,
@@ -90,6 +91,10 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [threadSummary, setThreadSummary] = useState<{ summary: string; message_count: number; truncated: boolean } | null>(null);
   const [summaryBusy, setSummaryBusy] = useState(false);
   const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [recap, setRecap] = useState<{ summary: string; message_count: number; truncated: boolean } | null>(null);
+  const [recapError, setRecapError] = useState<string | null>(null);
+  const [recapBusy, setRecapBusy] = useState(false);
+  const [showRecap, setShowRecap] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [recording, setRecording] = useState(false);
   const [browserAlertsEnabled, setBrowserAlertsEnabled] = useState(
@@ -128,6 +133,24 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     return () => { document.removeEventListener("keydown", onKeyDown); previousFocus?.focus(); };
   }, [showCreate, taskMessage, editingMessage, threadRoot]);
   const activeThreadRef = useRef<string | null>(null);
+  const activeConversationRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeConversationRef.current = selected?.id ?? null;
+    setRecap(null); setRecapError(null); setShowRecap(false);
+  }, [selected?.id]);
+
+  async function generateRecap() {
+    if (!selected || recapBusy) return;
+    const id = selected.id;
+    setRecapBusy(true); setRecapError(null);
+    try {
+      const result = await recapCommunicationConversation(id);
+      if (activeConversationRef.current === id) setRecap(result);
+    } catch (reason) {
+      if (activeConversationRef.current === id) setRecapError(reason instanceof Error ? reason.message : "Could not recap this conversation.");
+    } finally { setRecapBusy(false); }
+  }
 
   const refresh = async () => {
     setLoading(true);
@@ -550,6 +573,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
       <main className="communication-main">
         {selected ? <>
           <header className="conversation-header"><div className="conversation-heading"><div className="conversation-heading-icon" aria-hidden="true">{selected.kind === "channel" ? "#" : <Icon name="team" size={22} />}</div><div><span>{selected.kind === "channel" ? "CHANNEL" : "DIRECT MESSAGE"}</span><h2>{conversationLabel(selected, data.members)}</h2><p>{selected.description || "Private workspace conversation"}</p></div></div><div className="conversation-meta"><span><Icon name="team" size={15} /> {selected.member_ids.length} {selected.member_ids.length === 1 ? "member" : "members"}</span>{selected.primary_lead && <LeadChip lead={selected.primary_lead} onOpen={() => onOpenLead(selected.primary_lead!.id)} />}</div></header>
+          {can(permissions, "agents.execute") && <div className="communication-recap"><button type="button" className="button-quiet" aria-expanded={showRecap} onClick={() => setShowRecap((open) => !open)}>Conversation recap</button>{showRecap && <div className="communication-summary"><small>Generating a recap shares recent conversation messages with your workspace AI provider.</small><button type="button" className="secondary-button" disabled={recapBusy} onClick={() => void generateRecap()}>{recapBusy ? "Generating…" : recap ? "Refresh recap" : "Generate recap"}</button>{recapError && <p role="alert">{recapError}</p>}{recap && <div role="status"><strong>Recap · {recap.message_count} messages</strong><p>{recap.summary}</p>{recap.truncated && <small>Some earlier or lengthy content was omitted.</small>}</div>}</div>}</div>}
           <div className="message-list" aria-live="polite">{messages.length ? messages.map((message) => <article className="message" id={`communication-message-${message.id}`} key={message.id}><div className="message-avatar" aria-hidden="true">{message.author.display_name.slice(0, 1).toUpperCase()}</div><div><header><b>{message.author.display_name}</b><time>{time(message.created_at)}</time>{message.is_pinned && <span className="message-pin">Pinned</span>}<button className="message-pin-button" onClick={() => void pin(message.id)} aria-label={`${message.is_pinned ? "Unpin" : "Pin"} message from ${message.author.display_name}`}><Icon name="pin" size={16} /></button><button className="message-pin-button" onClick={() => void remind(message.id)} aria-label={`Remind me about message from ${message.author.display_name}`}><Icon name="clock" size={16} /></button></header><FormattedMessage text={message.plaintext} /><MessageLinkPreview text={message.plaintext} /><MessageAttachments message={message} />{message.mentioned_user_ids.length > 0 && <div className="message-tags">{message.mentioned_user_ids.map((id) => <span key={id}>@{data.members.find((member) => member.id === id)?.display_name || "member"}</span>)}</div>}{message.leads.map((lead) => <LeadChip key={lead.id} lead={lead} onOpen={() => onOpenLead(lead.id)} />)}{selected.kind === "dm" && message.author.id === data.active_user_id && <span className="message-read-status">{message.seen_by?.length ? "Seen" : "Not seen yet"}</span>}{message.tasks?.map((task) => <div className="communication-task" key={task.id}><label><input type="checkbox" checked={!!task.completed_at} disabled={task.assignee_id !== data.active_user_id && task.created_by !== data.active_user_id && !can(permissions, "communication.moderate")} onChange={(event) => void toggleTask(message.id, task.id, event.target.checked)} /> <span>{task.title}</span></label><small>{data.members.find((member) => member.id === task.assignee_id)?.display_name || "Member"}{task.due_at ? ` · Due ${new Date(task.due_at).toLocaleString()}` : ""}</small></div>)}{!message.deleted_at && can(permissions, "communication.create") && <button className="message-thread-button" onClick={() => setTaskMessage(message)}>Create task</button>}<button className="message-thread-button" onClick={() => setThreadRoot(message)}>Reply in thread</button>{!message.deleted_at && can(permissions, "communication.create") && (message.author.id === data.active_user_id || can(permissions, "communication.moderate")) && <><button className="message-thread-button" onClick={() => { setEditingMessage(message); setEditingText(message.plaintext); }}>Edit</button><button className="message-thread-button" onClick={() => void deleteMessage(message)}>Delete</button></>}</div></article>) : <div className="conversation-empty"><div className="communication-empty-content"><span className="communication-empty-icon"><Icon name="team" size={25} /></span><strong>Start the conversation</strong><p>Bring your team together here. Share an update, a lead, or an idea to get things moving.</p></div></div>}</div>
           {can(permissions, "communication.create") && <form className="message-composer" onSubmit={(event) => void send(event)}>
             <div className="composer-input-wrap"><textarea ref={composerRef} value={text} onChange={(event) => updateComposer(event.target.value, event.target.selectionStart)} onKeyDown={(event) => { if (event.key === "Escape" && mentionQuery) { event.preventDefault(); setMentionQuery(null); } else if (event.key === "ArrowDown" && mentionSuggestions.length) { event.preventDefault(); document.querySelector<HTMLButtonElement>("#communication-mention-suggestions button")?.focus(); } }} placeholder={`Message ${conversationLabel(selected, data.members)}`} aria-label="Message text" aria-autocomplete="list" aria-controls={mentionSuggestions.length ? "communication-mention-suggestions" : undefined} />{mentionSuggestions.length > 0 && <div id="communication-mention-suggestions" className="composer-mention-suggestions" role="listbox" aria-label="Mention a conversation member">{mentionSuggestions.map((member) => <button key={member.id} type="button" role="option" aria-selected="false" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(member)}><span>{member.display_name.slice(0, 1).toUpperCase()}</span><div><strong>{member.display_name}</strong><small>{member.email}</small></div></button>)}</div>}</div>
