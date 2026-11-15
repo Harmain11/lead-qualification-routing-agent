@@ -1423,6 +1423,16 @@ export const createCommunicationMessage = (conversationId: string, input: {
 export const pinCommunicationMessage = (messageId: string) =>
   jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}/pin`, { method: "POST" });
 
+export const createCommunicationTask = (messageId: string, input: { title: string; assignee_id: string; due_at: string | null }) =>
+  jsonRequest<import("./types").CommunicationTask>(`/v1/communication/messages/${messageId}/tasks`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  });
+
+export const updateCommunicationTask = (taskId: string, completed: boolean) =>
+  jsonRequest<import("./types").CommunicationTask>(`/v1/communication/tasks/${taskId}`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ completed }),
+  });
+
 export const unpinCommunicationMessage = (messageId: string) =>
   jsonRequest<void>(`/v1/communication/messages/${messageId}/pin`, { method: "DELETE" });
 

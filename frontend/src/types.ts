@@ -44,11 +44,17 @@ export type CommunicationMessage = {
   mentioned_user_ids: string[];
   leads: CommunicationLeadReference[];
   attachments: CommunicationAttachment[];
+  tasks: CommunicationTask[];
   is_pinned: boolean;
   seen_by: string[];
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;
+};
+
+export type CommunicationTask = {
+  id: string; title: string; assignee_id: string; created_by: string;
+  due_at: string | null; completed_at: string | null; created_at: string;
 };
 
 export type CommunicationAttachment = {

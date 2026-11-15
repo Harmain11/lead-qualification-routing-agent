@@ -50,6 +50,7 @@ from lead_agent.infrastructure.db.models import (
     CommunicationNotificationORM,
     CommunicationProjectORM,
     CommunicationReminderORM,
+    CommunicationTaskORM,
     LeadORM,
     QualificationResultORM,
     UserORM,
@@ -136,11 +137,34 @@ class MessageResponse(BaseModel):
     mentioned_user_ids: list[UUID]
     leads: list[LeadReference]
     attachments: list[AttachmentResponse]
+    tasks: list[TaskResponse] = Field(default_factory=list)
     is_pinned: bool
     seen_by: list[UUID] = Field(default_factory=list)
     edited_at: datetime | None
     deleted_at: datetime | None
     created_at: datetime
+
+
+class TaskResponse(BaseModel):
+    id: UUID
+    title: str
+    assignee_id: UUID
+    created_by: UUID
+    due_at: datetime | None
+    completed_at: datetime | None
+    created_at: datetime
+
+
+class TaskCreateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    title: str = Field(min_length=1, max_length=255)
+    assignee_id: UUID
+    due_at: datetime | None = None
+
+
+class TaskUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    completed: bool
 
 
 class CommunicationBootstrapResponse(BaseModel):
@@ -441,6 +465,10 @@ def _message_response(
             if (reference := _lead_reference(session, workspace_id, lead_id))
         ],
         attachments=[_attachment_response(attachment) for attachment in attachments],
+        tasks=[TaskResponse.model_validate(task, from_attributes=True) for task in session.scalars(
+            select(CommunicationTaskORM).where(CommunicationTaskORM.message_id == row.id)
+            .order_by(CommunicationTaskORM.created_at)
+        )],
         is_pinned=session.scalar(
             select(CommunicationMessagePinORM.id).where(
                 CommunicationMessagePinORM.message_id == row.id
@@ -723,6 +751,66 @@ def communication_presence(
     ))
     session.commit()
     return online
+
+
+@router.post("/messages/{message_id}/tasks", response_model=TaskResponse, status_code=201)
+def create_message_task(
+    message_id: UUID,
+    request: TaskCreateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.create")),
+) -> TaskResponse:
+    message = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == message_id,
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ))
+    if message is None:
+        raise HTTPException(404, "message not found")
+    _require_conversation_member(session, workspace, message.conversation_id)
+    active_members = {user.id for user, _ in _member_rows(session, workspace.workspace_id)}
+    if (
+        request.assignee_id not in set(_members(session, message.conversation_id))
+        or request.assignee_id not in active_members
+    ):
+        raise HTTPException(422, "assignee must be an active conversation member")
+    if request.due_at is not None and request.due_at.utcoffset() is None:
+        raise HTTPException(422, "due date must include a timezone")
+    task = CommunicationTaskORM(
+        id=uuid4(), workspace_id=workspace.workspace_id, message_id=message.id,
+        assignee_id=request.assignee_id, created_by=_actor(workspace), title=request.title,
+        due_at=request.due_at, created_at=datetime.now(UTC),
+    )
+    session.add(task)
+    session.commit()
+    return TaskResponse.model_validate(task, from_attributes=True)
+
+
+@router.patch("/tasks/{task_id}", response_model=TaskResponse)
+def update_message_task(
+    task_id: UUID,
+    request: TaskUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.create")),
+) -> TaskResponse:
+    task = session.scalar(select(CommunicationTaskORM).where(
+        CommunicationTaskORM.id == task_id,
+        CommunicationTaskORM.workspace_id == workspace.workspace_id,
+    ))
+    if task is None:
+        raise HTTPException(404, "task not found")
+    message = session.get(CommunicationMessageORM, task.message_id)
+    if message is None or message.deleted_at is not None:
+        raise HTTPException(404, "task not found")
+    _require_conversation_member(session, workspace, message.conversation_id)
+    if (
+        _actor(workspace) not in {task.assignee_id, task.created_by}
+        and "communication.moderate" not in workspace.permissions
+    ):
+        raise HTTPException(403, "only the assignee or creator may update this task")
+    task.completed_at = datetime.now(UTC) if request.completed else None
+    session.commit()
+    return TaskResponse.model_validate(task, from_attributes=True)
 
 
 @router.post(
@@ -1086,6 +1174,7 @@ def delete_message(
         raise HTTPException(status_code=503, detail="attachment storage is unavailable") from error
     for attachment in attachments:
         session.delete(attachment)
+    session.execute(delete(CommunicationTaskORM).where(CommunicationTaskORM.message_id == row.id))
     row.plaintext = "This message was deleted."
     row.body = {"version": 1, "type": "deleted"}
     row.deleted_at = datetime.now(UTC)

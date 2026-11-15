@@ -1466,6 +1466,29 @@ class CommunicationNotificationORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CommunicationTaskORM(Base):
+    __tablename__ = "communication_tasks"
+    __table_args__ = (Index("ix_communication_tasks_message", "message_id"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    assignee_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    created_by: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="RESTRICT"), nullable=False
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CommunicationReminderORM(Base):
     __tablename__ = "communication_reminders"
     __table_args__ = (Index("ix_communication_reminders_recipient_due", "recipient_id", "due_at"),)

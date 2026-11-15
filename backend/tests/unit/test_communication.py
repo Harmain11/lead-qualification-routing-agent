@@ -19,6 +19,8 @@ from lead_agent.api.routes.communication import (
     MessageCreateRequest,
     ProjectCreateRequest,
     ReadReceiptRequest,
+    TaskCreateRequest,
+    TaskUpdateRequest,
     _link_preview,
     _preview_address,
     _safe_preview_url,
@@ -26,11 +28,13 @@ from lead_agent.api.routes.communication import (
     communication_presence,
     create_conversation,
     create_message,
+    create_message_task,
     create_project,
     list_messages,
     mark_conversation_read,
     pin_message,
     search_messages,
+    update_message_task,
     upload_attachment,
 )
 from lead_agent.domain.auth import AuthenticatedIdentity
@@ -346,6 +350,21 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
             workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id,
             role="sales_rep", permissions=frozenset({"communication.view"}),
         )
+        task = create_message_task(
+            message.id, TaskCreateRequest(title="Review lead", assignee_id=teammate.id),
+            session, context,
+        )
+        done = update_message_task(
+            task.id, TaskUpdateRequest(completed=True), session, teammate_context
+        )
+        assert done.completed_at is not None
+        returned = list_messages(conversation.id, None, session, context)
+        assert returned[0].tasks[0].title == "Review lead"
+        with pytest.raises(HTTPException):
+            create_message_task(
+                message.id, TaskCreateRequest(title="Outside", assignee_id=uuid4()),
+                session, context,
+            )
         teammate_bootstrap = bootstrap(session, teammate_context)
         assert {member.id for member in teammate_bootstrap.members} == {owner.id, teammate.id}
         assert [item.id for item in teammate_bootstrap.conversations] == [conversation.id]
