@@ -91,6 +91,22 @@ test("approved workspace messages require access to the selected conversation", 
   }
 });
 
+test("approved direct message creates a conversation for a verified member", async () => {
+  requests.length = 0;
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), method: options?.method ?? "GET", body: JSON.parse(String(options?.body ?? "{}")) });
+    if (String(url).endsWith("/bootstrap")) return new Response(JSON.stringify({ active_user_id: "self", members: [{ id: targetId }], conversations: [] }), { status: 200 });
+    return new Response(JSON.stringify({ id: "conversation" }), { status: 200 });
+  };
+  try {
+    await actions.applyWorkspaceAssistantAction(proposal("send_communication", { target_type: "member", text: "Hello" }), new Set(["communication.view", "communication.create"]), noNavigate, noNavigate);
+    assert.equal(requests.length, 3);
+    assert.deepEqual(requests[1].body.member_ids, [targetId]);
+    assert.equal(requests[2].body.plaintext, "Hello");
+  } finally { globalThis.fetch = previousFetch; }
+});
+
 test("approved profile updates preserve reviewed values and explicit clearing", async () => {
   requests.length = 0;
   const result = await actions.applyWorkspaceAssistantAction(

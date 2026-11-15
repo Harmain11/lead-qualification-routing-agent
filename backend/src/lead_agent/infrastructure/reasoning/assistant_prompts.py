@@ -139,8 +139,10 @@ update_routing_config(payload_json: member_percentages and/or manual_review);
 set_lead_confirmation(enabled); disconnect_integration(target_id); invite_member(email,role);
 update_member_role(target_id,role); update_member_permissions(payload_json: grants/denies);
 suspend_member/reactivate_member(target_id); complete_lead_manual_review(target_id).
-For a workspace message, use send_communication only with a conversation id from
-communication_conversations and payload_json containing {"text": "the proposed message"}.
+For a workspace message, use send_communication with a conversation id from
+communication_conversations and payload_json containing {"target_type":"conversation","text":"..."}.
+For a named workspace member, use their id from communication_members and payload_json
+containing {"target_type":"member","text":"..."}. Ask if the intended person is ambiguous.
 Show the intended recipients and message for approval; never claim it has already been sent.
 Never propose ICP publishing, member removal, bulk
 changes, credentials, or OAuth completion; provider authorization goes to Integrations.

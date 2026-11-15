@@ -1319,17 +1319,25 @@ def chat_with_workspace_assistant(
             (item for item in workspace_context.get("communication_conversations", [])
              if item.get("id") == result.action.target_id), None
         )
+        payload: Any = {}
         try:
             payload = json.loads(result.action.payload_json or "{}")
             text = payload.get("text") if isinstance(payload, dict) else None
         except (TypeError, ValueError):
             text = None
-        if not conversation or not isinstance(text, str) or not text.strip() or len(text) > 20000:
+        member = None
+        if isinstance(payload, dict) and payload.get("target_type") == "member":
+            conversation = None
+            member = next(
+                (item for item in workspace_context.get("communication_members", [])
+                 if item.get("id") == result.action.target_id), None
+            )
+        if not (conversation or member) or not isinstance(text, str) or not text.strip() or len(text) > 20000:
             result.action = WorkspaceAssistantAction()
             result.reply = "Choose an accessible conversation and provide the message to review."
         else:
-            result.action.target_label = conversation.get("name") or ", ".join(
-                conversation.get("members", [])
+            result.action.target_label = f"{member.get('name')} ({member.get('email')})" if member else (
+                conversation.get("name") or ", ".join(conversation.get("members", []))
             )
             result.action.title = "Send workspace message"
             result.action.summary = (

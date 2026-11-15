@@ -81,6 +81,11 @@ def build_workspace_assistant_context(
             ][:50]
 
         load("communication_conversations", conversations)
+        load("communication_members", lambda: [
+            {"id": str(member.id), "name": member.display_name, "email": member.email}
+            for member in bootstrap(session, workspace).members
+            if member.id != workspace.user_id
+        ])
 
     if "analytics.view" in permissions:
         load("analytics_monthly", lambda: dashboard("monthly", session, workspace))

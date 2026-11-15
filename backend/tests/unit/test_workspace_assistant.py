@@ -151,6 +151,30 @@ def test_workspace_message_proposal_requires_accessible_conversation(monkeypatch
     assert allowed["action"]["target_label"] == "Deal desk"
 
 
+def test_workspace_message_can_target_verified_member(monkeypatch) -> None:
+    target = str(uuid4())
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Please review the message.",
+                action=WorkspaceAssistantAction(kind="send_communication", target_id=target,
+                    payload_json='{"target_type":"member","text":"Hello"}'),
+            )
+
+    monkeypatch.setattr(lead_assistant, "resolve_workspace_reasoning_provider", lambda *_: Provider())
+    context = {"permissions": [], "context_warnings": [], "communication_conversations": [],
+               "communication_members": [{"id": target, "name": "Teammate", "email": "test@example.test"}]}
+    monkeypatch.setattr(lead_assistant, "build_workspace_assistant_context", lambda *_: context)
+    result = chat_with_workspace_assistant(
+        AssistantChatRequest(messages=[AssistantMessage(role="user", content="Message Teammate")]),
+        session=object(), workspace=WorkspaceContext(workspace_id=uuid4(), actor_id="qa",
+            permissions=frozenset({"agents.execute", "communication.view", "communication.create"})),
+    )
+    assert result["action"]["kind"] == "send_communication"
+    assert result["action"]["target_label"] == "Teammate (test@example.test)"
+
+
 def test_workspace_chat_uses_minimal_context_for_standalone_thanks(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

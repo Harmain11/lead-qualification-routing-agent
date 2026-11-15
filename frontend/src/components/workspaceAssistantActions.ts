@@ -16,6 +16,7 @@ import {
   reevaluateLead,
   completeLeadManualReview,
   createCommunicationMessage,
+  createCommunicationConversation,
   getCommunicationBootstrap,
   type WorkspaceAssistantAction,
   type WorkspaceAssistantArea,
@@ -277,7 +278,13 @@ export async function applyWorkspaceAssistantAction(
         throw new Error("Choose a conversation and provide a message before sending.");
       }
       const workspace = await getCommunicationBootstrap();
-      const conversation = workspace.conversations.find((item) => item.id === action.target_id && !item.is_archived);
+      let conversation = workspace.conversations.find((item) => item.id === action.target_id && !item.is_archived);
+      if (payload.target_type === "member") {
+        const member = workspace.members.find((item) => item.id === action.target_id && item.id !== workspace.active_user_id);
+        if (!member) throw new Error("That workspace member is no longer available.");
+        conversation = workspace.conversations.find((item) => item.kind === "dm" && !item.is_archived && item.member_ids.includes(member.id) && item.member_ids.includes(workspace.active_user_id));
+        if (!conversation) conversation = await createCommunicationConversation({ kind: "dm", member_ids: [member.id] });
+      }
       if (!conversation) throw new Error("That conversation is no longer accessible.");
       const text = payload.text.trim();
       await createCommunicationMessage(conversation.id, { plaintext: text, body: { version: 1, type: "plain_text", text } });

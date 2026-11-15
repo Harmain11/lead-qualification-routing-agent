@@ -73,7 +73,7 @@ _REQUIRED_FIELDS = {
     "send_email": [
         "email_subject", "email_body", "recipient reviewed in UI", "verified Gmail sender"
     ],
-    "send_communication": ["target_id: accessible conversation", "payload_json: text"],
+    "send_communication": ["target_id: accessible conversation or workspace member", "payload_json: text and target_type (conversation|member)"],
     "coach_lead": ["target_id: verified workspace lead"],
     "set_automation_active": ["target_id", "enabled"],
     "create_icp_draft": ["payload_json"],
