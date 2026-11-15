@@ -9,6 +9,7 @@ import {
   createCommunicationReminder,
   createCommunicationTask,
   updateCommunicationTask,
+  summarizeCommunicationThread,
   apiUrl,
   getCommunicationBootstrap,
   getCommunicationLinkPreview,
@@ -79,6 +80,9 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [taskSaving, setTaskSaving] = useState(false);
   const [threadReplies, setThreadReplies] = useState<CommunicationMessage[]>([]);
   const [threadText, setThreadText] = useState("");
+  const [threadSummary, setThreadSummary] = useState<{ summary: string; message_count: number; truncated: boolean } | null>(null);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [recording, setRecording] = useState(false);
   const [browserAlertsEnabled, setBrowserAlertsEnabled] = useState(
@@ -88,6 +92,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const recordingStartedAt = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRequestRef = useRef(0);
+  const activeThreadRef = useRef<string | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -166,11 +171,26 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   }, [messages, notificationTarget]);
 
   useEffect(() => {
+    activeThreadRef.current = threadRoot?.id ?? null;
+    setThreadSummary(null);
+    setSummaryError(null);
     if (!threadRoot) { setThreadReplies([]); return; }
     void listCommunicationMessages(threadRoot.conversation_id, threadRoot.id)
       .then(setThreadReplies)
       .catch((reason) => setError(reason instanceof Error ? reason.message : "Thread replies could not be loaded."));
   }, [threadRoot?.id]);
+
+  async function summarizeThread() {
+    if (!threadRoot || summaryBusy) return;
+    const messageId = threadRoot.id;
+    setSummaryBusy(true);
+    setSummaryError(null);
+    try {
+      const summary = await summarizeCommunicationThread(messageId);
+      if (activeThreadRef.current === messageId) setThreadSummary(summary);
+    } catch (reason) { if (activeThreadRef.current === messageId) setSummaryError(reason instanceof Error ? reason.message : "Could not summarize this thread."); }
+    finally { setSummaryBusy(false); }
+  }
 
   const grouped = useMemo(() => (data?.projects ?? []).map((project) => ({ project, conversations: data?.conversations.filter((item) => item.project_id === project.id) ?? [] })), [data]);
   const ungrouped = useMemo(() => data?.conversations.filter((item) => !item.project_id) ?? [], [data]);
@@ -469,7 +489,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     </div>
     {showCreate && <div className="team-modal-backdrop"><form className="team-modal panel" onSubmit={(event) => void create(event)}><div className="team-modal-head"><div><span className="eyebrow">Communication</span><h2>{showCreate === "project" ? "Create project" : showCreate === "dm" ? "New direct message" : showCreate === "group" ? "New group message" : "Create channel"}</h2><p>{showCreate === "dm" ? "Start a private conversation with one workspace member." : showCreate === "group" ? "Start a private group with at least two teammates." : "Keep work organized with clear names, membership, and descriptions."}</p></div><button type="button" className="modal-close" onClick={() => { setShowCreate(null); setNewMemberIds([]); }} aria-label="Close">×</button></div>{showCreate === "dm" ? <label className="team-field"><span>Member</span><select name="member_id" required defaultValue=""><option value="" disabled>Select a member</option>{data.members.filter((member) => member.id !== data.active_user_id).map((member) => <option key={member.id} value={member.id}>{member.display_name} · {member.email}</option>)}</select></label> : showCreate === "group" ? <MemberPicker members={data.members} activeUserId={data.active_user_id} selectedIds={newMemberIds} onChange={setNewMemberIds} /> : <><label className="team-field"><span>Name</span><input name="name" required /></label><label className="team-field"><span>Description</span><textarea name="description" /></label>{showCreate === "channel" && <><label className="team-field"><span>Project</span><select name="project_id" defaultValue=""><option value="">No project</option>{data.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label><MemberPicker members={data.members} activeUserId={data.active_user_id} selectedIds={newMemberIds} onChange={setNewMemberIds} /></>}</>}<div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => { setShowCreate(null); setNewMemberIds([]); }}>Cancel</button><button className="primary-button" disabled={showCreate === "group" && newMemberIds.length < 2}>Create</button></div></form></div>}
     {taskMessage && selected && <div className="team-modal-backdrop"><form className="team-modal panel" onSubmit={(event) => void createTask(event)}><div className="team-modal-head"><div><span className="eyebrow">From this message</span><h2>Create task</h2><p>Assign a follow-up and keep the original message as context.</p></div><button type="button" className="modal-close" onClick={() => setTaskMessage(null)} aria-label="Close">×</button></div><label className="team-field"><span>Task</span><input name="title" maxLength={255} required /></label><label className="team-field"><span>Assign to</span><select name="assignee_id" required defaultValue=""><option value="" disabled>Select a conversation member</option>{data.members.filter((member) => selected.member_ids.includes(member.id)).map((member) => <option key={member.id} value={member.id}>{member.display_name}</option>)}</select></label><label className="team-field"><span>Due date (optional)</span><input type="datetime-local" name="due_at" /></label><div className="team-modal-actions"><button type="button" className="button-quiet" onClick={() => setTaskMessage(null)}>Cancel</button><button className="primary-button" disabled={taskSaving}>{taskSaving ? "Creating…" : "Create task"}</button></div></form></div>}
-    {threadRoot && <div className="team-modal-backdrop"><section className="team-modal panel communication-thread" aria-label="Message thread"><div className="team-modal-head"><div><span className="eyebrow">Thread</span><h2>{threadRoot.author.display_name}</h2><p>{threadRoot.plaintext}</p></div><button type="button" className="modal-close" onClick={() => setThreadRoot(null)} aria-label="Close thread">×</button></div><div className="thread-replies">{threadReplies.length ? threadReplies.map((reply) => <article key={reply.id}><b>{reply.author.display_name}</b><time>{time(reply.created_at)}</time><p>{reply.plaintext}</p></article>) : <p>No replies yet.</p>}</div>{can(permissions, "communication.create") && <form className="message-composer" onSubmit={(event) => void replyInThread(event)}><textarea value={threadText} onChange={(event) => setThreadText(event.target.value)} placeholder="Reply in thread" aria-label="Thread reply" /><div className="composer-tools"><button className="primary-button" disabled={!threadText.trim()}>Reply</button></div></form>}</section></div>}
+    {threadRoot && <div className="team-modal-backdrop"><section className="team-modal panel communication-thread" aria-label="Message thread"><div className="team-modal-head"><div><span className="eyebrow">Thread</span><h2>{threadRoot.author.display_name}</h2><p>{threadRoot.plaintext}</p></div><button type="button" className="modal-close" onClick={() => setThreadRoot(null)} aria-label="Close thread">×</button></div>{can(permissions, "agents.execute") && <div className="communication-summary"><button type="button" className="secondary-button" disabled={summaryBusy} onClick={() => void summarizeThread()}>{summaryBusy ? "Summarizing…" : "Summarize with Ask Corral"}</button><small>Shares this thread with your workspace AI provider.</small>{summaryError && <p role="alert">{summaryError}</p>}{threadSummary && <div role="status"><strong>AI summary · {threadSummary.message_count} messages</strong><p>{threadSummary.summary}</p>{threadSummary.truncated && <small>Some thread content was omitted due to size limits.</small>}</div>}</div>}<div className="thread-replies">{threadReplies.length ? threadReplies.map((reply) => <article key={reply.id}><b>{reply.author.display_name}</b><time>{time(reply.created_at)}</time><p>{reply.plaintext}</p></article>) : <p>No replies yet.</p>}</div>{can(permissions, "communication.create") && <form className="message-composer" onSubmit={(event) => void replyInThread(event)}><textarea value={threadText} onChange={(event) => setThreadText(event.target.value)} placeholder="Reply in thread" aria-label="Thread reply" /><div className="composer-tools"><button className="primary-button" disabled={!threadText.trim()}>Reply</button></div></form>}</section></div>}
   </section>;
 }
 

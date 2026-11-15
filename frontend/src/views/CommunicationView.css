@@ -13,6 +13,10 @@
 .communication-task { display: grid; gap: 4px; margin: 8px 0; padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 8px; background: var(--surface-sunken); }
 .communication-task label { display: flex; gap: 8px; align-items: center; }
 .communication-task small { padding-left: 24px; color: var(--label-2); }
+.communication-summary { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--separator-strong); border-radius: 10px; background: var(--surface-sunken); }
+.communication-summary > button { justify-self: start; }
+.communication-summary small { color: var(--label-2); }
+.communication-summary p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .communication-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 620px; overflow: hidden; border: 1px solid var(--separator-strong); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-card); }
 .communication-sidebar { min-width: 0; padding: 18px 12px; border-right: 1px solid var(--separator-strong); background: var(--surface-sunken); }
 .communication-search input { box-sizing: border-box; width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 9px; background: var(--surface); color: var(--label); font: inherit; }

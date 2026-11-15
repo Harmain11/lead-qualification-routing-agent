@@ -35,6 +35,7 @@ from lead_agent.api.routes.communication import (
     mark_conversation_read,
     pin_message,
     search_messages,
+    summarize_thread,
     update_message_task,
     upload_attachment,
 )
@@ -293,7 +294,9 @@ def test_presence_only_reports_recent_active_sessions_in_the_workspace() -> None
         assert communication_presence(session, context, identity) == [owner.id]
 
 
-def test_communication_message_mentions_and_lead_references_are_workspace_scoped() -> None:
+def test_communication_message_mentions_and_lead_references_are_workspace_scoped(
+    monkeypatch,
+) -> None:
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
@@ -406,6 +409,23 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
             CommunicationNotificationORM.recipient_id == owner.id,
             CommunicationNotificationORM.kind == "thread_reply",
         )) is not None
+        captured = {}
+
+        class SummaryProvider:
+            def assist_with_workspace(self, payload):
+                captured.update(payload)
+                return SimpleNamespace(reply="The lead needs review.")
+
+        monkeypatch.setattr(
+            "lead_agent.api.routes.communication.resolve_workspace_reasoning_provider",
+            lambda *_: SummaryProvider(),
+        )
+        summary = summarize_thread(message.id, session, context)
+        assert summary.message_count == 2
+        assert len(captured["workspace_context"]["thread_messages"]) == 2
+        with pytest.raises(HTTPException) as denied_summary:
+            summarize_thread(message.id, session, outsider)
+        assert denied_summary.value.status_code == 404
         other = create_conversation(
             ConversationCreateRequest(kind="channel", name="other"), session, context
         )

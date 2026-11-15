@@ -1433,6 +1433,12 @@ export const updateCommunicationTask = (taskId: string, completed: boolean) =>
     method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ completed }),
   });
 
+export const summarizeCommunicationThread = (messageId: string) =>
+  jsonRequest<{ summary: string; message_count: number; truncated: boolean }>(
+    `/v1/communication/messages/${messageId}/thread-summary`, { method: "POST" },
+    { activityToast: false },
+  );
+
 export const unpinCommunicationMessage = (messageId: string) =>
   jsonRequest<void>(`/v1/communication/messages/${messageId}/pin`, { method: "DELETE" });
 
