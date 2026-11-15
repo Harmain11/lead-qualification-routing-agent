@@ -99,6 +99,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const recordingStartedAt = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRequestRef = useRef(0);
+  const countRequestRef = useRef(0);
   const dialogBusyRef = useRef(false);
 
   useEffect(() => { setDialogError(null); }, [showCreate, taskMessage, editingMessage, threadRoot]);
@@ -143,6 +144,21 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   };
 
   useEffect(() => { void refresh(); }, []);
+
+  function refreshConversationCounts() {
+    const requestId = ++countRequestRef.current;
+    void getCommunicationBootstrap().then((next) => {
+      if (requestId !== countRequestRef.current) return;
+      setData((current) => current ? { ...current, conversations: next.conversations } : current);
+    }).catch(() => undefined);
+  }
+
+  useEffect(() => {
+    const update = () => { if (!document.hidden) refreshConversationCounts(); };
+    const interval = window.setInterval(update, 30_000);
+    document.addEventListener("visibilitychange", update);
+    return () => { countRequestRef.current++; window.clearInterval(interval); document.removeEventListener("visibilitychange", update); };
+  }, []);
 
   useEffect(() => {
     const update = () => {
@@ -190,7 +206,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     if (!element) return;
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting) && !document.hidden) {
-        void markCommunicationRead(selected.id, last.id).catch(() => undefined);
+        void markCommunicationRead(selected.id, last.id).then(refreshConversationCounts).catch(() => undefined);
         observer.disconnect();
       }
     }, { threshold: 0.5 });
@@ -527,7 +543,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
         <div className="communication-side-head"><span>Direct messages</span></div>
         {data.members.filter((member) => member.id !== data.active_user_id).map((member) => {
           const conversation = data.conversations.find((item) => item.kind === "dm" && !item.is_archived && item.member_ids.includes(member.id) && item.member_ids.includes(data.active_user_id));
-          return <button key={member.id} type="button" className={`communication-member${conversation && conversation.id === selected?.id ? " active" : ""}`} onClick={() => void openDirectMessage(member.id)} disabled={!!openingMemberId || (!conversation && !can(permissions, "communication.create"))} aria-label={`Message ${member.display_name}, ${onlineMemberIds === null ? "status unavailable" : onlineMemberIds.includes(member.id) ? "online" : "offline"}`}><span className="communication-member-avatar" aria-hidden="true">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="communication-member-name">{member.display_name}</span><span className={`communication-presence${onlineMemberIds?.includes(member.id) ? " is-online" : ""}`} title={onlineMemberIds === null ? "Status unavailable" : onlineMemberIds.includes(member.id) ? "Recently active" : "Offline"} aria-hidden="true" />{openingMemberId === member.id && <small>Opening…</small>}</button>;
+          return <button key={member.id} type="button" className={`communication-member${conversation && conversation.id === selected?.id ? " active" : ""}`} onClick={() => void openDirectMessage(member.id)} disabled={!!openingMemberId || (!conversation && !can(permissions, "communication.create"))} aria-label={`Message ${member.display_name}, ${onlineMemberIds === null ? "status unavailable" : onlineMemberIds.includes(member.id) ? "online" : "offline"}${conversation?.unread_count ? `, ${conversation.unread_count} unread ${conversation.unread_count === 1 ? "message" : "messages"}` : ""}`}><span className="communication-member-avatar" aria-hidden="true">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="communication-member-name">{member.display_name}</span>{!!conversation?.unread_count && <span className="communication-unread" aria-hidden="true">{conversation.unread_count > 99 ? "99+" : conversation.unread_count}</span>}<span className={`communication-presence${onlineMemberIds?.includes(member.id) ? " is-online" : ""}`} title={onlineMemberIds === null ? "Status unavailable" : onlineMemberIds.includes(member.id) ? "Recently active" : "Offline"} aria-hidden="true" />{openingMemberId === member.id && <small>Opening…</small>}</button>;
         })}
         {data.members.length <= 1 && <p className="communication-members-empty">Workspace members will appear here.</p>}
       </aside>
@@ -557,7 +573,9 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
 }
 
 function ConversationButton({ conversation, active, members, onClick }: { conversation: CommunicationConversation; active: boolean; members: CommunicationBootstrap["members"]; onClick: () => void }) {
-  return <button className={`conversation-button ${active ? "active" : ""}`} onClick={onClick}><span>{conversation.kind === "channel" ? "#" : "•"}</span>{conversationLabel(conversation, members)}</button>;
+  const label = conversationLabel(conversation, members);
+  const unread = conversation.unread_count || 0;
+  return <button className={`conversation-button ${active ? "active" : ""}`} onClick={onClick} aria-label={`${label}${unread ? `, ${unread} unread ${unread === 1 ? "message" : "messages"}` : ""}`}><span>{conversation.kind === "channel" ? "#" : "•"}</span><span className="conversation-name">{label}</span>{unread > 0 && <span className="communication-unread" aria-hidden="true">{unread > 99 ? "99+" : unread}</span>}</button>;
 }
 
 function LeadChip({ lead, onOpen }: { lead: { full_name: string; company_name: string; qualification: string | null; source: string; owner_name: string | null; pipeline_stage: string | null }; onOpen: () => void }) {

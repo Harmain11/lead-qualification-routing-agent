@@ -23,7 +23,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import and_, delete, or_, select, update
+from sqlalchemy import and_, delete, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import (
@@ -129,6 +129,7 @@ class ConversationResponse(BaseModel):
     primary_lead: LeadReference | None = None
     is_archived: bool
     member_ids: list[UUID]
+    unread_count: int = 0
     updated_at: datetime
 
 
@@ -429,6 +430,27 @@ def _lead_reference(
 def _conversation_response(
     session: Session, workspace: WorkspaceContext, row: CommunicationConversationORM
 ) -> ConversationResponse:
+    unread_count = session.scalar(
+        select(func.count(CommunicationMessageORM.id))
+        .join(
+            CommunicationConversationMemberORM,
+            CommunicationConversationMemberORM.conversation_id
+            == CommunicationMessageORM.conversation_id,
+        )
+        .where(
+            CommunicationMessageORM.workspace_id == workspace.workspace_id,
+            CommunicationMessageORM.conversation_id == row.id,
+            CommunicationConversationMemberORM.user_id == workspace.user_id,
+            CommunicationMessageORM.author_id != workspace.user_id,
+            CommunicationMessageORM.parent_message_id.is_(None),
+            CommunicationMessageORM.deleted_at.is_(None),
+            or_(
+                CommunicationConversationMemberORM.last_read_at.is_(None),
+                CommunicationMessageORM.created_at
+                > CommunicationConversationMemberORM.last_read_at,
+            ),
+        )
+    ) or 0
     return ConversationResponse(
         id=row.id,
         project_id=row.project_id,
@@ -438,6 +460,7 @@ def _conversation_response(
         primary_lead=_lead_reference(session, workspace, row.primary_lead_id),
         is_archived=row.is_archived,
         member_ids=_members(session, row.id),
+        unread_count=unread_count,
         updated_at=row.updated_at,
     )
 

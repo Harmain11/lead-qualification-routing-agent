@@ -27,6 +27,8 @@
 .conversation-button:hover, .conversation-button.active { background: var(--surface); color: var(--tint-text); }
 .conversation-button.active { font-weight: 700; box-shadow: 0 1px 4px rgba(20,57,45,.1); }
 .conversation-button span { color: var(--tint-text); font-weight: 700; }
+.conversation-button .conversation-name { min-width: 0; flex: 1; color: inherit; font-weight: inherit; overflow-wrap: anywhere; }
+.communication-unread, .conversation-button .communication-unread { display: inline-grid; place-items: center; flex: 0 0 auto; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; background: var(--tint); color: white; font-size: 11px; font-weight: 700; line-height: 1; }
 .communication-member { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 42px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: var(--label-2); font: inherit; text-align: left; cursor: pointer; }
 .communication-member:hover, .communication-member.active { background: var(--surface); color: var(--tint-text); }
 .communication-member.active { font-weight: 700; box-shadow: 0 1px 4px rgba(20,57,45,.1); }

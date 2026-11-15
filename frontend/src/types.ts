@@ -33,6 +33,7 @@ export type CommunicationConversation = {
   primary_lead: CommunicationLeadReference | null;
   is_archived: boolean;
   member_ids: string[];
+  unread_count: number;
   updated_at: string;
 };
 

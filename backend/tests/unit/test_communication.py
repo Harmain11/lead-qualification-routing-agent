@@ -381,6 +381,8 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
         teammate_bootstrap = bootstrap(session, teammate_context)
         assert {member.id for member in teammate_bootstrap.members} == {owner.id, teammate.id}
         assert [item.id for item in teammate_bootstrap.conversations] == [conversation.id]
+        assert teammate_bootstrap.conversations[0].unread_count == 1
+        assert bootstrap(session, context).conversations[0].unread_count == 0
         assert list_messages(conversation.id, None, session, teammate_context)[0].leads == []
         scoped_teammate = WorkspaceContext(
             workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id,
@@ -400,6 +402,7 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
         mark_conversation_read(
             conversation.id, ReadReceiptRequest(message_id=message.id), session, teammate_context
         )
+        assert bootstrap(session, teammate_context).conversations[0].unread_count == 0
         assert list_messages(conversation.id, None, session, context)[0].seen_by == [teammate.id]
         outsider = WorkspaceContext(
             workspace_id=workspace.id, actor_id=str(uuid4()), user_id=uuid4()
