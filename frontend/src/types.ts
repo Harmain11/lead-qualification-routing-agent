@@ -45,6 +45,7 @@ export type CommunicationMessage = {
   leads: CommunicationLeadReference[];
   attachments: CommunicationAttachment[];
   is_pinned: boolean;
+  seen_by: string[];
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;

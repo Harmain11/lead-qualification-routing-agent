@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import socket
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from html import unescape
 from ipaddress import ip_address
 from pathlib import PurePath
@@ -23,10 +23,15 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import and_, delete, select
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import Session
 
-from lead_agent.api.dependencies import get_runtime_settings, require_permission
+from lead_agent.api.dependencies import (
+    get_authenticated_identity,
+    get_runtime_settings,
+    require_permission,
+)
+from lead_agent.domain.auth import AuthenticatedIdentity
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.communication_attachments import (
     delete_private_attachment,
@@ -34,6 +39,7 @@ from lead_agent.infrastructure.communication_attachments import (
     put_private_attachment,
 )
 from lead_agent.infrastructure.db.models import (
+    AuthSessionORM,
     CommunicationAttachmentORM,
     CommunicationConversationMemberORM,
     CommunicationConversationORM,
@@ -87,6 +93,7 @@ class MemberSummary(BaseModel):
     id: UUID
     display_name: str
     email: str
+    online: bool = False
 
 
 class LeadReference(BaseModel):
@@ -130,6 +137,7 @@ class MessageResponse(BaseModel):
     leads: list[LeadReference]
     attachments: list[AttachmentResponse]
     is_pinned: bool
+    seen_by: list[UUID] = Field(default_factory=list)
     edited_at: datetime | None
     deleted_at: datetime | None
     created_at: datetime
@@ -439,6 +447,13 @@ def _message_response(
             )
         )
         is not None,
+        seen_by=list(session.scalars(
+            select(CommunicationConversationMemberORM.user_id).where(
+                CommunicationConversationMemberORM.conversation_id == row.conversation_id,
+                CommunicationConversationMemberORM.user_id != row.author_id,
+                CommunicationConversationMemberORM.last_read_at >= row.created_at,
+            )
+        )) if row.parent_message_id is None else [],
         edited_at=row.edited_at,
         deleted_at=row.deleted_at,
         created_at=row.created_at,
@@ -652,6 +667,62 @@ def list_messages(
         )
     )
     return [_message_response(session, workspace.workspace_id, row) for row in rows]
+
+
+class ReadReceiptRequest(BaseModel):
+    message_id: UUID
+
+
+@router.post("/conversations/{conversation_id}/read", status_code=204)
+def mark_conversation_read(
+    conversation_id: UUID,
+    request: ReadReceiptRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> Response:
+    _require_conversation_member(session, workspace, conversation_id)
+    message = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == request.message_id,
+        CommunicationMessageORM.conversation_id == conversation_id,
+        CommunicationMessageORM.parent_message_id.is_(None),
+    ))
+    if message is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    session.execute(update(CommunicationConversationMemberORM).where(
+        CommunicationConversationMemberORM.conversation_id == conversation_id,
+        CommunicationConversationMemberORM.user_id == workspace.user_id,
+        or_(CommunicationConversationMemberORM.last_read_at.is_(None),
+            CommunicationConversationMemberORM.last_read_at < message.created_at),
+    ).values(last_read_at=message.created_at))
+    session.commit()
+    return Response(status_code=204)
+
+
+@router.post("/presence", response_model=list[UUID])
+def communication_presence(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+    identity: AuthenticatedIdentity = Depends(get_authenticated_identity),
+) -> list[UUID]:
+    now = datetime.now(UTC)
+    current = session.get(AuthSessionORM, identity.session_id)
+    if current is not None:
+        current.last_seen_at = now
+        session.flush()
+    online = list(session.scalars(
+        select(AuthSessionORM.user_id).join(
+            WorkspaceMembershipORM, WorkspaceMembershipORM.user_id == AuthSessionORM.user_id
+        ).where(
+            WorkspaceMembershipORM.workspace_id == workspace.workspace_id,
+            WorkspaceMembershipORM.status == "active",
+            AuthSessionORM.current_workspace_id == workspace.workspace_id,
+            AuthSessionORM.revoked_at.is_(None),
+            AuthSessionORM.expires_at > now,
+            AuthSessionORM.last_seen_at >= now - timedelta(minutes=2),
+        ).distinct()
+    ))
+    session.commit()
+    return online
 
 
 @router.post(

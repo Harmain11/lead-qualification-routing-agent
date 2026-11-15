@@ -12,6 +12,8 @@ import {
   getCommunicationLinkPreview,
   listCommunicationMessages,
   listCommunicationNotifications,
+  markCommunicationRead,
+  refreshCommunicationPresence,
   listLeads,
   pinCommunicationMessage,
   readCommunicationNotification,
@@ -62,6 +64,8 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   const [showCreate, setShowCreate] = useState<"project" | "channel" | "dm" | "group" | null>(null);
   const [newMemberIds, setNewMemberIds] = useState<string[]>([]);
   const [openingMemberId, setOpeningMemberId] = useState<string | null>(null);
+  const [onlineMemberIds, setOnlineMemberIds] = useState<string[] | null>(null);
+  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [mobileConversationsOpen, setMobileConversationsOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<CommunicationMessage[]>([]);
@@ -97,6 +101,16 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
   useEffect(() => { void refresh(); }, []);
 
   useEffect(() => {
+    const update = () => {
+      if (!document.hidden) void refreshCommunicationPresence().then(setOnlineMemberIds).catch(() => setOnlineMemberIds(null));
+    };
+    update();
+    const interval = window.setInterval(update, 30_000);
+    document.addEventListener("visibilitychange", update);
+    return () => { window.clearInterval(interval); document.removeEventListener("visibilitychange", update); };
+  }, []);
+
+  useEffect(() => {
     const refreshNotifications = () => void listCommunicationNotifications().then((next) => {
       setNotifications((current) => {
         const known = new Set(current.map((notification) => notification.id));
@@ -115,12 +129,30 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
     if (!selected) { setMessages([]); return; }
     let active = true;
     const loadMessages = () => void listCommunicationMessages(selected.id)
-      .then((next) => { if (active) setMessages(next); })
+      .then((next) => {
+        if (!active) return;
+        setMessages(next);
+      })
       .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Messages could not be loaded."); });
     loadMessages();
     const interval = window.setInterval(loadMessages, 20_000);
     return () => { active = false; window.clearInterval(interval); };
   }, [selected?.id]);
+
+  useEffect(() => {
+    const last = messages.at(-1);
+    if (!selected || !last || document.hidden) return;
+    const element = document.getElementById(`communication-message-${last.id}`);
+    if (!element) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting) && !document.hidden) {
+        void markCommunicationRead(selected.id, last.id).catch(() => undefined);
+        observer.disconnect();
+      }
+    }, { threshold: 0.5 });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [selected?.id, messages]);
 
   useEffect(() => {
     if (!threadRoot) { setThreadReplies([]); return; }
@@ -342,10 +374,7 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
       <div className="communication-header-actions">
         <button className="button-quiet communication-notifications" onClick={() => setShowNotifications((open) => !open)} aria-expanded={showNotifications} aria-controls="communication-alerts">Alerts{notifications.filter((item) => !item.read_at).length ? ` · ${notifications.filter((item) => !item.read_at).length}` : ""}</button>
         {!browserAlertsEnabled && <button className="button-quiet" onClick={() => void enableBrowserAlerts()}>Enable alerts</button>}
-        {can(permissions, "communication.manage") && <button className="secondary-button" onClick={() => setShowCreate("project")}>New project</button>}
-        {can(permissions, "communication.create") && <button className="secondary-button" onClick={() => setShowCreate("dm")}>New message</button>}
-        {can(permissions, "communication.create") && <button className="secondary-button" onClick={() => setShowCreate("group")}>New group</button>}
-        {can(permissions, "communication.create") && <button className="primary-button" onClick={() => setShowCreate("channel")}>New channel</button>}
+        {(can(permissions, "communication.create") || can(permissions, "communication.manage")) && <div className="communication-quick-actions"><button type="button" className="primary-button" aria-expanded={quickActionsOpen} onClick={() => setQuickActionsOpen((open) => !open)}>Quick actions</button>{quickActionsOpen && <div className="communication-quick-menu" role="group" aria-label="Quick actions">{can(permissions, "communication.create") && <><button type="button" onClick={() => { setShowCreate("dm"); setQuickActionsOpen(false); }}>New message</button><button type="button" onClick={() => { setShowCreate("group"); setQuickActionsOpen(false); }}>New group</button><button type="button" onClick={() => { setShowCreate("channel"); setQuickActionsOpen(false); }}>New channel</button></>}{can(permissions, "communication.manage") && <button type="button" onClick={() => { setShowCreate("project"); setQuickActionsOpen(false); }}>New project</button>}</div>}</div>}
       </div>
     </header>
     {showNotifications && <section id="communication-alerts" className="communication-alerts" aria-label="Communication alerts"><div className="communication-alerts-head"><div><strong>Alerts</strong><p>Mentions, replies, messages and reminders</p></div><button type="button" className="button-quiet" disabled={!notifications.some((item) => !item.read_at)} onClick={() => void readNotifications()}>Mark all read</button></div>{notifications.length ? <ul>{notifications.map((item) => <li key={item.id}><span className={item.read_at ? "communication-alert-dot is-read" : "communication-alert-dot"} aria-hidden="true" /><div><strong>{item.kind === "mention" ? "You were mentioned" : item.kind === "thread_reply" ? "New thread reply" : item.kind === "dm" ? "New direct message" : item.kind === "reminder" ? "Message reminder" : "Communication update"}</strong><time>{time(item.created_at)}</time></div>{!item.read_at && <span className="communication-alert-unread">Unread</span>}</li>)}</ul> : <p className="communication-alerts-empty">No alerts yet.</p>}</section>}
@@ -364,14 +393,14 @@ export function CommunicationView({ permissions, onOpenLead }: CommunicationView
         <div className="communication-side-head"><span>Direct messages</span></div>
         {data.members.filter((member) => member.id !== data.active_user_id).map((member) => {
           const conversation = data.conversations.find((item) => item.kind === "dm" && !item.is_archived && item.member_ids.includes(member.id) && item.member_ids.includes(data.active_user_id));
-          return <button key={member.id} type="button" className={`communication-member${conversation && conversation.id === selected?.id ? " active" : ""}`} onClick={() => void openDirectMessage(member.id)} disabled={!!openingMemberId || (!conversation && !can(permissions, "communication.create"))} aria-label={`Message ${member.display_name}`}><span className="communication-member-avatar" aria-hidden="true">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="communication-member-name">{member.display_name}</span>{openingMemberId === member.id && <small>Opening…</small>}</button>;
+          return <button key={member.id} type="button" className={`communication-member${conversation && conversation.id === selected?.id ? " active" : ""}`} onClick={() => void openDirectMessage(member.id)} disabled={!!openingMemberId || (!conversation && !can(permissions, "communication.create"))} aria-label={`Message ${member.display_name}, ${onlineMemberIds === null ? "status unavailable" : onlineMemberIds.includes(member.id) ? "online" : "offline"}`}><span className="communication-member-avatar" aria-hidden="true">{member.display_name.slice(0, 1).toUpperCase()}</span><span className="communication-member-name">{member.display_name}</span><span className={`communication-presence${onlineMemberIds?.includes(member.id) ? " is-online" : ""}`} title={onlineMemberIds === null ? "Status unavailable" : onlineMemberIds.includes(member.id) ? "Recently active" : "Offline"} aria-hidden="true" />{openingMemberId === member.id && <small>Opening…</small>}</button>;
         })}
         {data.members.length <= 1 && <p className="communication-members-empty">Workspace members will appear here.</p>}
       </aside>
       <main className="communication-main">
         {selected ? <>
           <header className="conversation-header"><div className="conversation-heading"><div className="conversation-heading-icon" aria-hidden="true">{selected.kind === "channel" ? "#" : <Icon name="team" size={22} />}</div><div><span>{selected.kind === "channel" ? "CHANNEL" : "DIRECT MESSAGE"}</span><h2>{conversationLabel(selected, data.members)}</h2><p>{selected.description || "Private workspace conversation"}</p></div></div><div className="conversation-meta"><span><Icon name="team" size={15} /> {selected.member_ids.length} {selected.member_ids.length === 1 ? "member" : "members"}</span>{selected.primary_lead && <LeadChip lead={selected.primary_lead} onOpen={() => onOpenLead(selected.primary_lead!.id)} />}</div></header>
-          <div className="message-list" aria-live="polite">{messages.length ? messages.map((message) => <article className="message" key={message.id}><div className="message-avatar" aria-hidden="true">{message.author.display_name.slice(0, 1).toUpperCase()}</div><div><header><b>{message.author.display_name}</b><time>{time(message.created_at)}</time>{message.is_pinned && <span className="message-pin">Pinned</span>}<button className="message-pin-button" onClick={() => void pin(message.id)} aria-label={`${message.is_pinned ? "Unpin" : "Pin"} message from ${message.author.display_name}`}><Icon name="pin" size={16} /></button><button className="message-pin-button" onClick={() => void remind(message.id)} aria-label={`Remind me about message from ${message.author.display_name}`}><Icon name="clock" size={16} /></button></header><FormattedMessage text={message.plaintext} /><MessageLinkPreview text={message.plaintext} /><MessageAttachments message={message} />{message.mentioned_user_ids.length > 0 && <div className="message-tags">{message.mentioned_user_ids.map((id) => <span key={id}>@{data.members.find((member) => member.id === id)?.display_name || "member"}</span>)}</div>}{message.leads.map((lead) => <LeadChip key={lead.id} lead={lead} onOpen={() => onOpenLead(lead.id)} />)}<button className="message-thread-button" onClick={() => setThreadRoot(message)}>Reply in thread</button></div></article>) : <div className="conversation-empty"><div className="communication-empty-content"><span className="communication-empty-icon"><Icon name="team" size={25} /></span><strong>Start the conversation</strong><p>Bring your team together here. Share an update, a lead, or an idea to get things moving.</p></div></div>}</div>
+          <div className="message-list" aria-live="polite">{messages.length ? messages.map((message) => <article className="message" id={`communication-message-${message.id}`} key={message.id}><div className="message-avatar" aria-hidden="true">{message.author.display_name.slice(0, 1).toUpperCase()}</div><div><header><b>{message.author.display_name}</b><time>{time(message.created_at)}</time>{message.is_pinned && <span className="message-pin">Pinned</span>}<button className="message-pin-button" onClick={() => void pin(message.id)} aria-label={`${message.is_pinned ? "Unpin" : "Pin"} message from ${message.author.display_name}`}><Icon name="pin" size={16} /></button><button className="message-pin-button" onClick={() => void remind(message.id)} aria-label={`Remind me about message from ${message.author.display_name}`}><Icon name="clock" size={16} /></button></header><FormattedMessage text={message.plaintext} /><MessageLinkPreview text={message.plaintext} /><MessageAttachments message={message} />{message.mentioned_user_ids.length > 0 && <div className="message-tags">{message.mentioned_user_ids.map((id) => <span key={id}>@{data.members.find((member) => member.id === id)?.display_name || "member"}</span>)}</div>}{message.leads.map((lead) => <LeadChip key={lead.id} lead={lead} onOpen={() => onOpenLead(lead.id)} />)}{selected.kind === "dm" && message.author.id === data.active_user_id && <span className="message-read-status">{message.seen_by?.length ? "Seen" : "Not seen yet"}</span>}<button className="message-thread-button" onClick={() => setThreadRoot(message)}>Reply in thread</button></div></article>) : <div className="conversation-empty"><div className="communication-empty-content"><span className="communication-empty-icon"><Icon name="team" size={25} /></span><strong>Start the conversation</strong><p>Bring your team together here. Share an update, a lead, or an idea to get things moving.</p></div></div>}</div>
           {can(permissions, "communication.create") && <form className="message-composer" onSubmit={(event) => void send(event)}>
             <div className="composer-input-wrap"><textarea ref={composerRef} value={text} onChange={(event) => updateComposer(event.target.value, event.target.selectionStart)} onKeyDown={(event) => { if (event.key === "Escape" && mentionQuery) { event.preventDefault(); setMentionQuery(null); } else if (event.key === "ArrowDown" && mentionSuggestions.length) { event.preventDefault(); document.querySelector<HTMLButtonElement>("#communication-mention-suggestions button")?.focus(); } }} placeholder={`Message ${conversationLabel(selected, data.members)}`} aria-label="Message text" aria-autocomplete="list" aria-controls={mentionSuggestions.length ? "communication-mention-suggestions" : undefined} />{mentionSuggestions.length > 0 && <div id="communication-mention-suggestions" className="composer-mention-suggestions" role="listbox" aria-label="Mention a conversation member">{mentionSuggestions.map((member) => <button key={member.id} type="button" role="option" aria-selected="false" onMouseDown={(event) => event.preventDefault()} onClick={() => insertMention(member)}><span>{member.display_name.slice(0, 1).toUpperCase()}</span><div><strong>{member.display_name}</strong><small>{member.email}</small></div></button>)}</div>}</div>
             <div className="composer-tools">

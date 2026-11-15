@@ -18,22 +18,27 @@ from lead_agent.api.routes.communication import (
     ConversationCreateRequest,
     MessageCreateRequest,
     ProjectCreateRequest,
+    ReadReceiptRequest,
     _link_preview,
     _preview_address,
     _safe_preview_url,
     bootstrap,
+    communication_presence,
     create_conversation,
     create_message,
     create_project,
     list_messages,
+    mark_conversation_read,
     pin_message,
     search_messages,
     upload_attachment,
 )
+from lead_agent.domain.auth import AuthenticatedIdentity
 from lead_agent.domain.rbac import ROLE_PERMISSIONS
 from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
+    AuthSessionORM,
     CommunicationNotificationORM,
     CommunicationReminderORM,
     LeadORM,
@@ -251,6 +256,38 @@ def _seed(session: Session) -> tuple[WorkspaceORM, UserORM, UserORM, LeadORM]:
     return workspace, owner, teammate, lead
 
 
+def test_presence_only_reports_recent_active_sessions_in_the_workspace() -> None:
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace, owner, teammate, _ = _seed(session)
+        now = datetime.now(UTC)
+        current = AuthSessionORM(
+            id=uuid4(), user_id=owner.id, current_workspace_id=workspace.id,
+            token_hash="test-token", csrf_token_hash="test-csrf",
+            expires_at=now + timedelta(hours=1),
+            last_seen_at=now - timedelta(minutes=10), created_at=now,
+        )
+        stale = AuthSessionORM(
+            id=uuid4(), user_id=teammate.id, current_workspace_id=workspace.id,
+            token_hash="other-token", csrf_token_hash="other-csrf",
+            expires_at=now + timedelta(hours=1),
+            last_seen_at=now - timedelta(minutes=10), created_at=now,
+        )
+        session.add_all([current, stale])
+        session.commit()
+        context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(owner.id), user_id=owner.id
+        )
+        identity = AuthenticatedIdentity(
+            user_id=owner.id, email=owner.email, display_name=owner.display_name,
+            session_id=current.id, current_workspace_id=workspace.id,
+        )
+        assert communication_presence(session, context, identity) == [owner.id]
+
+
 def test_communication_message_mentions_and_lead_references_are_workspace_scoped() -> None:
     engine = create_engine(
         "sqlite://",
@@ -312,6 +349,19 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
         teammate_bootstrap = bootstrap(session, teammate_context)
         assert {member.id for member in teammate_bootstrap.members} == {owner.id, teammate.id}
         assert [item.id for item in teammate_bootstrap.conversations] == [conversation.id]
+        assert list_messages(conversation.id, None, session, context)[0].seen_by == []
+        mark_conversation_read(
+            conversation.id, ReadReceiptRequest(message_id=message.id), session, teammate_context
+        )
+        assert list_messages(conversation.id, None, session, context)[0].seen_by == [teammate.id]
+        outsider = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(uuid4()), user_id=uuid4()
+        )
+        with pytest.raises(HTTPException) as denied:
+            mark_conversation_read(
+                conversation.id, ReadReceiptRequest(message_id=message.id), session, outsider
+            )
+        assert denied.value.status_code == 404
         pinned = pin_message(message.id, session, context)
         assert pinned.is_pinned is True
         assert [item.id for item in search_messages("review", session, context)] == [message.id]

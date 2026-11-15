@@ -121,6 +121,36 @@ def test_sequence_request_does_not_become_standalone_email(monkeypatch) -> None:
     assert "sequence or playbook" in result["reply"]
 
 
+def test_workspace_message_proposal_requires_accessible_conversation(monkeypatch) -> None:
+    target = str(uuid4())
+
+    class Provider:
+        def assist_with_workspace(self, _payload):
+            return WorkspaceAssistantReply(
+                reply="Review this message.",
+                action=WorkspaceAssistantAction(
+                    kind="send_communication", target_id=target,
+                    payload_json='{"text":"Hello"}',
+                ),
+            )
+
+    monkeypatch.setattr(lead_assistant, "resolve_workspace_reasoning_provider", lambda *_: Provider())
+    context = {"permissions": [], "context_warnings": [], "communication_conversations": []}
+    monkeypatch.setattr(lead_assistant, "build_workspace_assistant_context", lambda *_: context)
+    workspace = WorkspaceContext(
+        workspace_id=uuid4(), actor_id="qa", permissions=frozenset(
+            {"agents.execute", "communication.view", "communication.create"}
+        ),
+    )
+    request = AssistantChatRequest(messages=[AssistantMessage(role="user", content="Send a message")])
+    denied = chat_with_workspace_assistant(request, session=object(), workspace=workspace)
+    assert denied["action"]["kind"] == "none"
+    context["communication_conversations"] = [{"id": target, "name": "Deal desk", "members": []}]
+    allowed = chat_with_workspace_assistant(request, session=object(), workspace=workspace)
+    assert allowed["action"]["kind"] == "send_communication"
+    assert allowed["action"]["target_label"] == "Deal desk"
+
+
 def test_workspace_chat_uses_minimal_context_for_standalone_thanks(monkeypatch) -> None:
     captured: dict[str, object] = {}
 

@@ -1385,6 +1385,15 @@ export const createCommunicationConversation = (input: {
 export const listCommunicationMessages = (conversationId: string, parentMessageId?: string | null) =>
   jsonRequest<CommunicationMessage[]>(`/v1/communication/conversations/${conversationId}/messages${parentMessageId ? `?parent_message_id=${encodeURIComponent(parentMessageId)}` : ""}`);
 
+export const markCommunicationRead = (conversationId: string, messageId: string) =>
+  jsonRequest<void>(`/v1/communication/conversations/${conversationId}/read`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message_id: messageId }),
+  }, { activityToast: false });
+
+export const refreshCommunicationPresence = () =>
+  jsonRequest<string[]>("/v1/communication/presence", { method: "POST" }, { activityToast: false });
+
 export const uploadCommunicationAttachment = (
   messageId: string,
   input: { file: File; kind: "file" | "voice"; duration_ms?: number },

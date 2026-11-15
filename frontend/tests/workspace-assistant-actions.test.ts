@@ -65,6 +65,11 @@ test("coaching requires lead and agent access and uses the coaching endpoint", a
   assert.match(requests[0].url, /\/v1\/intelligence\/leads\/.*\/coach$/);
 });
 
+test("automation drafts do not silently discard unsupported steps", () => {
+  assert.throws(() => actions.automationDraftSpec({ name: "Follow up", kind: "sequence", steps: [{ type: "send" }] }), /Unsupported step/);
+  assert.throws(() => actions.automationDraftSpec({ name: "Follow up", kind: "other", steps: [{ type: "draft" }] }), /Choose sequence or playbook/);
+});
+
 test("approved workspace messages require access to the selected conversation", async () => {
   requests.length = 0;
   const previousFetch = globalThis.fetch;
@@ -280,11 +285,11 @@ test("AI Activity navigation is gated by its view permission", async () => {
 test("automation drafts become a paused linear graph", () => {
   const spec = actions.automationDraftSpec({
     name: "Post-demo follow up", kind: "sequence",
-    steps: [{ type: "draft", text: "Recap" }, { type: "wait", wait_hours: 48 }, { type: "send" }, { type: "draft", text: "Nudge" }],
+    steps: [{ type: "draft", text: "Recap" }, { type: "wait", wait_hours: 48 }, { type: "draft", text: "Nudge" }],
   });
   assert.equal(spec.active, false);
   assert.deepEqual(spec.nodes.map((node) => node.type), ["start", "draft", "wait", "draft", "end"]);
   assert.equal(spec.nodes.at(-1)?.next, null);
   spec.nodes.slice(0, -1).forEach((node, index) => assert.equal(node.next, spec.nodes[index + 1].id));
-  assert.throws(() => actions.automationDraftSpec({ name: "Empty", steps: [] }), /at least one step/);
+  assert.throws(() => actions.automationDraftSpec({ name: "Empty", kind: "sequence", steps: [] }), /at least one step/);
 });

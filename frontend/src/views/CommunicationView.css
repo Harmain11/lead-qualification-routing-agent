@@ -3,6 +3,13 @@
 .communication-header h1 { margin: 6px 0 10px; font-size: clamp(27px, 3vw, 36px); line-height: 1.15; letter-spacing: -.035em; }
 .communication-header p, .conversation-header p { margin: 0; color: var(--label-2); line-height: 1.5; }
 .communication-header-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.communication-quick-actions { position: relative; }
+.communication-quick-menu { position: absolute; z-index: 10; top: calc(100% + 6px); right: 0; display: grid; min-width: 180px; padding: 6px; border: 1px solid var(--separator-strong); border-radius: 10px; background: var(--surface); box-shadow: var(--shadow-card); }
+.communication-quick-menu button { border: 0; border-radius: 7px; padding: 10px 12px; background: transparent; color: var(--label); font: inherit; text-align: left; cursor: pointer; }
+.communication-quick-menu button:hover, .communication-quick-menu button:focus-visible { background: var(--surface-sunken); }
+.communication-presence { margin-left: auto; flex: 0 0 9px; height: 9px; border-radius: 50%; background: var(--label-2); opacity: .45; }
+.communication-presence.is-online { background: #238557; opacity: 1; }
+.message-read-status { display: inline-block; margin-right: 12px; color: var(--label-2); font-size: 12px; }
 .communication-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: 620px; overflow: hidden; border: 1px solid var(--separator-strong); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-card); }
 .communication-sidebar { min-width: 0; padding: 18px 12px; border-right: 1px solid var(--separator-strong); background: var(--surface-sunken); }
 .communication-search input { box-sizing: border-box; width: 100%; min-height: 42px; padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 9px; background: var(--surface); color: var(--label); font: inherit; }

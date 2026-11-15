@@ -124,13 +124,15 @@ const DRAFT_STEP_TYPES = new Set(["wait", "draft", "research", "coach", "note"])
 export function automationDraftSpec(payload: Record<string, unknown>): AutomationSpec {
   const name = typeof payload.name === "string" ? payload.name.trim().slice(0, 120) : "";
   if (!name) throw new Error("Give the sequence or playbook a name.");
-  const kind = payload.kind === "playbook" ? "playbook" : "sequence";
+  if (payload.kind !== "playbook" && payload.kind !== "sequence") throw new Error("Choose sequence or playbook for this draft.");
+  const kind = payload.kind;
   const steps = Array.isArray(payload.steps) ? payload.steps : [];
+  if (steps.length > 48) throw new Error("Use no more than 48 steps in one draft.");
   const body = steps.flatMap((step): PlaybookNode[] => {
-    if (!step || typeof step !== "object") return [];
+    if (!step || typeof step !== "object") throw new Error("Each step needs a supported type.");
     const item = step as Record<string, unknown>;
     const type = typeof item.type === "string" ? item.type : "";
-    if (!DRAFT_STEP_TYPES.has(type)) return [];
+    if (!DRAFT_STEP_TYPES.has(type)) throw new Error(`Unsupported step type: ${type || "missing"}.`);
     const hours = Number(item.wait_hours);
     return [{
       id: "", type: type as PlaybookNode["type"], x: 60, y: 60, next: null, otherwise: null,
@@ -138,7 +140,7 @@ export function automationDraftSpec(payload: Record<string, unknown>): Automatio
       condition: "hot",
       text: typeof item.text === "string" ? item.text.slice(0, 2000) : "",
     }];
-  }).slice(0, 48);
+  });
   if (!body.length) throw new Error("Add at least one step to the draft.");
   const chain: PlaybookNode[] = [
     { id: "start", type: "start", x: 60, y: 60, next: null, otherwise: null, wait_hours: 24, condition: "hot", text: "" },
