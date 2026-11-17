@@ -279,6 +279,27 @@ class GoogleCalendarClient:
     def event(self, event_id: str) -> dict[str, Any]:
         return self.api.request("GET", f"calendars/primary/events/{event_id}")
 
+    def create_meet_event(
+        self, *, event_id: str, summary: str, description: str, start_at: datetime,
+        end_at: datetime, time_zone: str, attendees: list[str], request_id: str,
+        workspace_id: str, actor_id: str, request_hash: str,
+    ) -> dict[str, Any]:
+        return self.api.request(
+            "POST", "calendars/primary/events",
+            params={"sendUpdates": "all", "conferenceDataVersion": 1},
+            payload={
+                "id": event_id, "summary": summary, "description": description,
+                "start": {"dateTime": start_at.isoformat(), "timeZone": time_zone},
+                "end": {"dateTime": end_at.isoformat(), "timeZone": time_zone},
+                "attendees": [{"email": email} for email in attendees],
+                "conferenceData": {"createRequest": {"requestId": request_id,
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"}}},
+                "extendedProperties": {"private": {"corralWorkspaceId": workspace_id,
+                    "corralActorId": actor_id, "corralRequestId": request_id,
+                    "corralRequestHash": request_hash}},
+            },
+        )
+
     def cancel_event(self, event_id: str) -> None:
         self.api.request(
             "DELETE", f"calendars/primary/events/{event_id}",

@@ -1437,7 +1437,7 @@ input[type="checkbox"]:not(.v-switch):not(.v-check):not([role="switch"]):disable
 
 /* ===================================================== Inbox: always fits its space, Gmail-style threads */
 .v-app .mailbox { min-width: 0; max-width: 100%; }
-.v-app .mailbox-grid { height: calc(100dvh - var(--toolbar-h) - 150px); min-height: 480px; max-width: 100%; }
+.v-app .mailbox-grid { height: calc(100dvh - var(--toolbar-h) - 100px); min-height: 480px; max-width: 100%; }
 .v-app .mailbox-grid > * { min-width: 0; }
 .v-app .mailbox-rows, .v-app .mailbox-reader { min-height: 0; overscroll-behavior: contain; }
 .v-app .mailbox-list { overflow: hidden; }

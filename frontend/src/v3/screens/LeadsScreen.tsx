@@ -966,9 +966,6 @@ const LeadRow = memo(function LeadRow({
               </select>
             ) : <span className="v-owner-name" title={lead.owner_name || "Unassigned"}>{lead.owner_name || "Unassigned"}</span>}
           </td>
-          <td className="c-status">
-            {lead.has_unread_update ? <span className="v-status-chip v-status-updated">Needs review</span> : <span className="v-muted">Up to date</span>}
-          </td>
           <td className="c-sublead" onClick={(event) => event.stopPropagation()}>
             {canManageRouting && lead.routing ? (
               <span className="v-two">
@@ -993,6 +990,9 @@ const LeadRow = memo(function LeadRow({
                 <span>{lead.routing ? lead.routing.assigned_rep_name || "Unassigned" : "Routing pending"}</span>
               </span>
             )}
+          </td>
+          <td className="c-status">
+            {lead.has_unread_update ? <span className="v-status-chip v-status-updated">Needs review</span> : <span className="v-muted">Up to date</span>}
           </td>
         </>
       ) : (

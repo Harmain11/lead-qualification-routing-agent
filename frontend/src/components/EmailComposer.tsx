@@ -6,6 +6,7 @@ import { confirmAction } from "../v3/ui/confirm";
 import { sanitizeHtml } from "../sanitizeHtml";
 import { Icon } from "../v3/ui/Icon";
 import { Banner, Button, IconButton, Menu, MenuItem } from "../v3/ui/primitives";
+import { GoogleMeetDialog } from "./GoogleMeetDialog";
 
 const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 
@@ -104,6 +105,7 @@ export function EmailComposer({
   const [aiOpen, setAiOpen] = useState(false);
   const [beforeAi, setBeforeAi] = useState<{ subject: string; body: string; html: string } | null>(null);
   const [proposeOpen, setProposeOpen] = useState(false);
+  const [meetOpen, setMeetOpen] = useState(false);
   const [proposals, setProposals] = useState<string[]>(["", "", ""]);
   const [meetingRecommendations, setMeetingRecommendations] = useState<MeetingRecommendations | null>(null);
   const [meetingLoading, setMeetingLoading] = useState(false);
@@ -601,6 +603,7 @@ export function EmailComposer({
             {leadId && <MenuItem icon="calendar" onSelect={() => { close(); saveSelection(); void prepareAppointmentDraft(); }}>Create AI appointment draft</MenuItem>}
             <MenuItem icon="link" onSelect={() => { close(); saveSelection(); void insertBookingLink(); }}>Insert booking link</MenuItem>
             <MenuItem icon="clock" onSelect={() => { close(); saveSelection(); setProposeOpen(true); }}>Propose times…</MenuItem>
+            <MenuItem icon="calendar" onSelect={() => { close(); saveSelection(); setMeetOpen(true); }}>Create Google Meet…</MenuItem>
           </>
         )}
       </Menu>
@@ -630,6 +633,7 @@ export function EmailComposer({
         </Button>
       </div>
     </div>}
+    {meetOpen && <GoogleMeetDialog defaultTitle={subject} defaultAttendees={recipient} onClose={() => setMeetOpen(false)} onCreated={(result) => { setMeetOpen(false); const link = result.meet_url || result.event_url; if (link) insertText(`\nMeeting: ${link}\n`); setNotice(result.meet_url ? "Meeting created and link inserted." : "Event created. Google is still preparing the Meet link; open the event link in Google Calendar."); }} />}
     {linkOpen && <div className="mail-inline-panel">
       <input type="url" value={linkUrl} onChange={(event) => setLinkUrl(event.target.value)} placeholder="https://example.com" aria-label="Link address" autoFocus />
       <Button size="sm" onClick={() => setLinkOpen(false)}>Cancel</Button>

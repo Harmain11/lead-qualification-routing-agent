@@ -6,9 +6,9 @@ from datetime import UTC, datetime, timedelta
 from html import unescape
 from ipaddress import ip_address
 from pathlib import PurePath
-from typing import Any, Literal
-from urllib.parse import urljoin, urlparse
-from uuid import UUID, uuid4
+from typing import Annotated, Any, Literal
+from urllib.parse import quote, urljoin, urlparse
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import httpx
 from fastapi import (
@@ -24,6 +24,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import and_, delete, func, or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from lead_agent.api.dependencies import (
@@ -45,13 +46,17 @@ from lead_agent.infrastructure.db.models import (
     CommunicationAttachmentORM,
     CommunicationConversationMemberORM,
     CommunicationConversationORM,
+    CommunicationDraftORM,
     CommunicationMessageLeadORM,
     CommunicationMessageMentionORM,
     CommunicationMessageORM,
     CommunicationMessagePinORM,
+    CommunicationMessageReactionORM,
     CommunicationNotificationORM,
+    CommunicationPreferenceORM,
     CommunicationProjectORM,
     CommunicationReminderORM,
+    CommunicationSavedMessageORM,
     CommunicationTaskORM,
     LeadORM,
     QualificationResultORM,
@@ -146,9 +151,17 @@ class MessageResponse(BaseModel):
     tasks: list[TaskResponse] = Field(default_factory=list)
     is_pinned: bool
     seen_by: list[UUID] = Field(default_factory=list)
+    reactions: list[ReactionResponse] = Field(default_factory=list)
+    is_saved: bool = False
     edited_at: datetime | None
     deleted_at: datetime | None
     created_at: datetime
+
+
+class ReactionResponse(BaseModel):
+    reaction: str
+    count: int
+    mine: bool
 
 
 class TaskResponse(BaseModel):
@@ -234,6 +247,151 @@ class MessageUpdateRequest(BaseModel):
 
     body: dict[str, Any] = Field(default_factory=dict)
     plaintext: str = Field(min_length=1, max_length=20_000)
+
+
+class ForwardMessageRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: UUID
+    request_id: UUID
+
+
+class DraftRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    text: str = Field(default="", max_length=20_000)
+    mention_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    lead_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    attachment_names: list[str] = Field(default_factory=list, max_length=30)
+
+
+class CommunicationPreferences(BaseModel):
+    sound_enabled: bool = False
+    muted_conversation_ids: list[UUID] = Field(default_factory=list)
+
+
+def _get_preference(session: Session, workspace: WorkspaceContext, *, create: bool = False):
+    actor = _actor(workspace)
+    query = select(CommunicationPreferenceORM).where(
+        CommunicationPreferenceORM.workspace_id == workspace.workspace_id,
+        CommunicationPreferenceORM.user_id == actor,
+    )
+    row = session.scalar(query.with_for_update() if create else query)
+    if row is None and create:
+        row = CommunicationPreferenceORM(
+            id=uuid4(), workspace_id=workspace.workspace_id, user_id=actor,
+            sound_enabled=False, muted_conversation_ids=[],
+        )
+        session.add(row)
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            row = session.scalar(query.with_for_update())
+            if row is None:
+                raise
+    return row
+
+
+def _preference_response(row: CommunicationPreferenceORM | None) -> CommunicationPreferences:
+    return CommunicationPreferences(
+        sound_enabled=row.sound_enabled if row else False,
+        muted_conversation_ids=row.muted_conversation_ids if row else [],
+    )
+
+
+@router.get("/preferences", response_model=CommunicationPreferences)
+def communication_preferences(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> CommunicationPreferences:
+    return _preference_response(_get_preference(session, workspace))
+
+
+@router.put("/preferences/sound/{enabled}", response_model=CommunicationPreferences)
+def set_communication_sound(
+    enabled: bool,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> CommunicationPreferences:
+    row = _get_preference(session, workspace, create=True)
+    row.sound_enabled = enabled
+    session.commit()
+    return _preference_response(row)
+
+
+def _change_mute(
+    conversation_id: UUID, muted: bool, session: Session, workspace: WorkspaceContext,
+) -> CommunicationPreferences:
+    _require_conversation_member(session, workspace, conversation_id)
+    row = _get_preference(session, workspace, create=True)
+    values = set(row.muted_conversation_ids)
+    if muted:
+        values.add(str(conversation_id))
+    else:
+        values.discard(str(conversation_id))
+    row.muted_conversation_ids = sorted(values)
+    session.commit()
+    return _preference_response(row)
+
+
+@router.put("/conversations/{conversation_id}/mute", response_model=CommunicationPreferences)
+def mute_conversation(
+    conversation_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> CommunicationPreferences:
+    return _change_mute(conversation_id, True, session, workspace)
+
+
+@router.delete("/conversations/{conversation_id}/mute", response_model=CommunicationPreferences)
+def unmute_conversation(
+    conversation_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> CommunicationPreferences:
+    return _change_mute(conversation_id, False, session, workspace)
+
+
+class ChecklistUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    line: int = Field(ge=0, le=20000)
+    completed: bool
+    expected_text: str = Field(max_length=20_000)
+
+
+@router.get("/conversations/{conversation_id}/draft", response_model=DraftRequest)
+def get_draft(
+    conversation_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> DraftRequest:
+    _require_conversation_member(session, workspace, conversation_id)
+    row = session.scalar(select(CommunicationDraftORM).where(
+        CommunicationDraftORM.conversation_id == conversation_id,
+        CommunicationDraftORM.user_id == _actor(workspace),
+    ))
+    return DraftRequest.model_validate(row.body) if row else DraftRequest()
+
+
+@router.put("/conversations/{conversation_id}/draft", response_model=DraftRequest)
+def save_draft(
+    conversation_id: UUID,
+    request: DraftRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.create")),
+) -> DraftRequest:
+    _require_conversation_member(session, workspace, conversation_id)
+    actor = _actor(workspace)
+    row = session.scalar(select(CommunicationDraftORM).where(
+        CommunicationDraftORM.conversation_id == conversation_id,
+        CommunicationDraftORM.user_id == actor,
+    ))
+    if row is None:
+        row = CommunicationDraftORM(id=uuid4(), conversation_id=conversation_id, user_id=actor)
+        session.add(row)
+    row.body = request.model_dump(mode="json")
+    row.updated_at = datetime.now(UTC)
+    session.commit()
+    return request
 
 
 class ReminderCreateRequest(BaseModel):
@@ -492,6 +650,18 @@ def _message_response(
             .order_by(CommunicationAttachmentORM.created_at)
         )
     )
+    reactions = list(session.execute(
+        select(
+            CommunicationMessageReactionORM.reaction,
+            func.count(CommunicationMessageReactionORM.id),
+        ).where(CommunicationMessageReactionORM.message_id == row.id)
+        .group_by(CommunicationMessageReactionORM.reaction)
+        .order_by(CommunicationMessageReactionORM.reaction)
+    ))
+    mine = set(session.scalars(select(CommunicationMessageReactionORM.reaction).where(
+        CommunicationMessageReactionORM.message_id == row.id,
+        CommunicationMessageReactionORM.user_id == workspace.user_id,
+    )))
     return MessageResponse(
         id=row.id,
         conversation_id=row.conversation_id,
@@ -506,6 +676,12 @@ def _message_response(
             if (reference := _lead_reference(session, workspace, lead_id))
         ],
         attachments=[_attachment_response(attachment) for attachment in attachments],
+        reactions=[ReactionResponse(reaction=name, count=count, mine=name in mine)
+                   for name, count in reactions],
+        is_saved=session.scalar(select(CommunicationSavedMessageORM.id).where(
+            CommunicationSavedMessageORM.message_id == row.id,
+            CommunicationSavedMessageORM.user_id == workspace.user_id,
+        )) is not None,
         tasks=[TaskResponse.model_validate(task, from_attributes=True) for task in session.scalars(
             select(CommunicationTaskORM).where(CommunicationTaskORM.message_id == row.id)
             .order_by(CommunicationTaskORM.created_at)
@@ -1055,11 +1231,32 @@ def create_message(
         (user_id, "mention") for user_id in set(request.mentioned_user_ids) if user_id != actor_id
     }
     if conversation.kind in {"dm", "group_dm"}:
-        notified.update((user_id, "dm") for user_id in member_ids if user_id != actor_id)
+        notified.update(
+            (user_id, "dm") for user_id in member_ids
+            if user_id != actor_id and user_id not in request.mentioned_user_ids
+        )
+    elif request.parent_message_id is None:
+        notified.update(
+            (user_id, "message") for user_id in member_ids
+            if user_id != actor_id and user_id not in request.mentioned_user_ids
+        )
     if request.parent_message_id is not None:
         parent = session.get(CommunicationMessageORM, request.parent_message_id)
-        if parent is not None and parent.author_id != actor_id:
+        if (
+            parent is not None and parent.author_id != actor_id
+            and not any(user_id == parent.author_id for user_id, _ in notified)
+        ):
             notified.add((parent.author_id, "thread_reply"))
+    muted_users = {
+        preference.user_id for preference in session.scalars(
+            select(CommunicationPreferenceORM).where(
+            CommunicationPreferenceORM.workspace_id == workspace.workspace_id,
+            CommunicationPreferenceORM.user_id.in_({user_id for user_id, _ in notified}),
+            )
+        ) if str(conversation_id) in preference.muted_conversation_ids
+    }
+    notified = {(user_id, kind) for user_id, kind in notified
+                if kind == "mention" or user_id not in muted_users}
     session.add_all(
         [
             CommunicationNotificationORM(
@@ -1078,6 +1275,113 @@ def create_message(
     return _message_response(session, workspace, row)
 
 
+@router.post("/messages/{message_id}/forward", response_model=MessageResponse, status_code=201)
+def forward_message(
+    message_id: UUID,
+    request: ForwardMessageRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.create")),
+) -> MessageResponse:
+    source = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == message_id,
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ))
+    if source is None:
+        raise HTTPException(404, "message not found")
+    _require_conversation_member(session, workspace, source.conversation_id)
+    destination = _require_conversation_member(session, workspace, request.conversation_id)
+    if destination.is_archived:
+        raise HTTPException(409, "conversation is archived")
+    actor = _actor(workspace)
+    forward_key = f"corral-forward:{workspace.workspace_id}:{actor}:{request.request_id}"
+    forwarded_id = uuid5(NAMESPACE_URL, forward_key)
+
+    def existing_result() -> MessageResponse | None:
+        existing = session.get(CommunicationMessageORM, forwarded_id)
+        if existing is None:
+            return None
+        if (existing.workspace_id != workspace.workspace_id
+                or existing.conversation_id != destination.id
+                or existing.author_id != actor
+                or existing.body.get("forwarded_from") != str(source.id)):
+            raise HTTPException(409, "This forward request ID was used for different details.")
+        return _message_response(session, workspace, existing)
+
+    existing = existing_result()
+    if existing is not None:
+        return existing
+    attachments = list(session.scalars(select(CommunicationAttachmentORM).where(
+        CommunicationAttachmentORM.message_id == source.id
+    ).order_by(CommunicationAttachmentORM.created_at)))
+    if attachments and "communication.attach" not in workspace.permissions:
+        raise HTTPException(403, "attachment permission required to forward files")
+    now = datetime.now(UTC)
+    forwarded = CommunicationMessageORM(
+        id=forwarded_id, workspace_id=workspace.workspace_id, conversation_id=destination.id,
+        author_id=actor, plaintext=source.plaintext, parent_message_id=None, created_at=now,
+        body={"version": 1, "type": "markdown", "text": source.plaintext,
+              "forwarded_from": str(source.id)},
+    )
+    stored_keys: list[str] = []
+    try:
+        session.add(forwarded)
+        session.flush()
+        for attachment in attachments:
+            content = get_private_attachment(attachment.storage_key)
+            key = f"communication/{workspace.workspace_id}/{forwarded.id}/{uuid4().hex}"
+            stored_key = put_private_attachment(key, content, attachment.content_type)
+            stored_keys.append(stored_key)
+            session.add(CommunicationAttachmentORM(
+                id=uuid4(), workspace_id=workspace.workspace_id, message_id=forwarded.id,
+                uploaded_by=actor, kind=attachment.kind, filename=attachment.filename,
+                content_type=attachment.content_type, byte_size=attachment.byte_size,
+                storage_key=stored_key, duration_ms=attachment.duration_ms, created_at=now,
+            ))
+        for lead_id in session.scalars(select(CommunicationMessageLeadORM.lead_id).where(
+            CommunicationMessageLeadORM.message_id == source.id
+        )):
+            if _lead_reference(session, workspace, lead_id) is not None:
+                session.add(CommunicationMessageLeadORM(
+                    id=uuid4(), message_id=forwarded.id, lead_id=lead_id, created_at=now,
+                ))
+        notification_kind = "dm" if destination.kind in {"dm", "group_dm"} else "message"
+        destination_members = _members(session, destination.id)
+        muted_users = {
+            preference.user_id for preference in session.scalars(
+                select(CommunicationPreferenceORM).where(
+                    CommunicationPreferenceORM.workspace_id == workspace.workspace_id,
+                    CommunicationPreferenceORM.user_id.in_(destination_members),
+                )
+            ) if str(destination.id) in preference.muted_conversation_ids
+        }
+        session.add_all([CommunicationNotificationORM(
+            id=uuid4(), workspace_id=workspace.workspace_id, recipient_id=member_id,
+            message_id=forwarded.id, kind=notification_kind,
+            created_at=now,
+        ) for member_id in destination_members
+                         if member_id != actor and member_id not in muted_users])
+        destination.updated_at = now
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        for key in stored_keys:
+            delete_private_attachment(key)
+        existing = existing_result()
+        if existing is None:
+            raise
+        return existing
+    except Exception as error:
+        session.rollback()
+        for key in stored_keys:
+            try:
+                delete_private_attachment(key)
+            except Exception:
+                pass
+        raise HTTPException(503, "Could not forward this message and its attachments.") from error
+    return _message_response(session, workspace, forwarded)
+
+
 @router.post(
     "/messages/{message_id}/attachments",
     response_model=AttachmentResponse,
@@ -1091,6 +1395,7 @@ def upload_attachment(
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("communication.attach")),
     settings: Settings = Depends(get_runtime_settings),
+    client_upload_id: Annotated[UUID | None, Form()] = None,
 ) -> AttachmentResponse:
     message = session.scalar(
         select(CommunicationMessageORM).where(
@@ -1109,6 +1414,24 @@ def upload_attachment(
         raise HTTPException(status_code=403, detail="only the author may add an attachment")
     filename = PurePath(file.filename or "attachment").name[:255]
     content_type = (file.content_type or "application/octet-stream").split(";", 1)[0].lower()
+
+    def find_existing() -> CommunicationAttachmentORM | None:
+        if client_upload_id is None:
+            return None
+        existing = session.scalar(select(CommunicationAttachmentORM).where(
+            CommunicationAttachmentORM.message_id == message.id,
+            CommunicationAttachmentORM.client_upload_id == client_upload_id,
+        ))
+        if existing is not None and (
+            existing.uploaded_by != _actor(workspace) or existing.filename != filename
+            or existing.content_type != content_type or existing.kind != kind
+            or existing.duration_ms != duration_ms
+        ):
+            raise HTTPException(409, "This upload ID was used for a different attachment.")
+        return existing
+
+    if (existing := find_existing()) is not None:
+        return _attachment_response(existing)
     if content_type not in _ALLOWED_ATTACHMENT_TYPES:
         raise HTTPException(status_code=422, detail="this attachment type is not allowed")
     if kind == "voice" and not content_type.startswith("audio/"):
@@ -1142,11 +1465,19 @@ def upload_attachment(
         byte_size=len(content),
         storage_key=stored_key,
         duration_ms=duration_ms,
+        client_upload_id=client_upload_id,
         created_at=datetime.now(UTC),
     )
     try:
         session.add(attachment)
         session.commit()
+    except IntegrityError:
+        session.rollback()
+        delete_private_attachment(stored_key)
+        existing = find_existing()
+        if existing is None:
+            raise
+        return _attachment_response(existing)
     except Exception:
         session.rollback()
         delete_private_attachment(stored_key)
@@ -1159,6 +1490,7 @@ def download_attachment(
     attachment_id: UUID,
     session: Session = Depends(get_db),
     workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+    download: bool = False,
 ) -> Response:
     attachment = session.scalar(
         select(CommunicationAttachmentORM).where(
@@ -1179,11 +1511,17 @@ def download_attachment(
     except Exception as error:
         raise HTTPException(status_code=503, detail="attachment storage is unavailable") from error
     safe_filename = attachment.filename.replace('"', "_").replace("\\", "_")
+    safe_filename = safe_filename.replace("\r", "_").replace("\n", "_")
+    ascii_filename = safe_filename.encode("ascii", "replace").decode("ascii")
+    disposition = "attachment" if download else "inline"
     return Response(
         content=content,
         media_type=attachment.content_type,
         headers={
-            "Content-Disposition": f'inline; filename="{safe_filename}"',
+            "Content-Disposition": (
+                f'{disposition}; filename="{ascii_filename}"; '
+                f"filename*=UTF-8''{quote(safe_filename, safe='')}"
+            ),
             "X-Content-Type-Options": "nosniff",
             "Cache-Control": "private, no-store",
         },
@@ -1219,6 +1557,189 @@ def delete_attachment(
         raise HTTPException(status_code=503, detail="attachment storage is unavailable") from error
     session.delete(attachment)
     session.commit()
+
+
+ReactionKind = Literal["thumbs_up", "heart", "celebrate", "eyes", "check"]
+
+
+@router.get("/saved", response_model=list[MessageResponse])
+def list_saved_messages(
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> list[MessageResponse]:
+    rows = session.scalars(select(CommunicationMessageORM).join(
+        CommunicationSavedMessageORM,
+        CommunicationSavedMessageORM.message_id == CommunicationMessageORM.id,
+    ).join(
+        CommunicationConversationMemberORM,
+        CommunicationConversationMemberORM.conversation_id
+        == CommunicationMessageORM.conversation_id,
+    ).where(
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+        CommunicationSavedMessageORM.user_id == _actor(workspace),
+        CommunicationConversationMemberORM.user_id == _actor(workspace),
+    ).order_by(CommunicationSavedMessageORM.created_at.desc()).limit(100))
+    return [_message_response(session, workspace, row) for row in rows]
+
+
+@router.put("/messages/{message_id}/saved", response_model=MessageResponse)
+def save_message(
+    message_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> MessageResponse:
+    row = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == message_id,
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ))
+    if row is None:
+        raise HTTPException(404, "message not found")
+    _require_conversation_member(session, workspace, row.conversation_id)
+    actor = _actor(workspace)
+    existing = session.scalar(select(CommunicationSavedMessageORM.id).where(
+        CommunicationSavedMessageORM.message_id == row.id,
+        CommunicationSavedMessageORM.user_id == actor,
+    ))
+    if existing is None:
+        session.add(CommunicationSavedMessageORM(
+            id=uuid4(), message_id=row.id, user_id=actor, created_at=datetime.now(UTC),
+        ))
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            if session.scalar(select(CommunicationSavedMessageORM.id).where(
+                CommunicationSavedMessageORM.message_id == message_id,
+                CommunicationSavedMessageORM.user_id == actor,
+            )) is None:
+                raise
+    return _message_response(session, workspace, row)
+
+
+@router.delete("/messages/{message_id}/saved", response_model=MessageResponse)
+def unsave_message(
+    message_id: UUID,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.view")),
+) -> MessageResponse:
+    row = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == message_id,
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ))
+    if row is None:
+        raise HTTPException(404, "message not found")
+    _require_conversation_member(session, workspace, row.conversation_id)
+    session.execute(delete(CommunicationSavedMessageORM).where(
+        CommunicationSavedMessageORM.message_id == row.id,
+        CommunicationSavedMessageORM.user_id == _actor(workspace),
+    ))
+    session.commit()
+    return _message_response(session, workspace, row)
+
+
+@router.patch("/messages/{message_id}/checklist", response_model=MessageResponse)
+def update_checklist(
+    message_id: UUID,
+    request: ChecklistUpdateRequest,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.create")),
+) -> MessageResponse:
+    row = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == message_id,
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ))
+    if row is None:
+        raise HTTPException(404, "message not found")
+    _require_conversation_member(session, workspace, row.conversation_id)
+    if row.plaintext != request.expected_text:
+        raise HTTPException(409, "Message changed. Refresh and try again.")
+    lines = row.plaintext.split("\n")
+    if request.line >= len(lines) or not re.match(r"^\s*- \[[ xX]\] ", lines[request.line]):
+        raise HTTPException(422, "Checklist item not found")
+    lines[request.line] = re.sub(
+        r"^(\s*- \[)[ xX](\] )", lambda match: match.group(1)
+        + ("x" if request.completed else " ") + match.group(2), lines[request.line], count=1,
+    )
+    text = "\n".join(lines)
+    body = {**row.body, "text": text}
+    updated = session.execute(update(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == row.id,
+        CommunicationMessageORM.plaintext == request.expected_text,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ).values(plaintext=text, body=body, edited_at=datetime.now(UTC)))
+    if updated.rowcount != 1:
+        session.rollback()
+        raise HTTPException(409, "Message changed. Refresh and try again.")
+    session.commit()
+    session.refresh(row)
+    return _message_response(session, workspace, row)
+
+
+@router.put("/messages/{message_id}/reactions/{reaction}", response_model=MessageResponse)
+def add_reaction(
+    message_id: UUID,
+    reaction: ReactionKind,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.create")),
+) -> MessageResponse:
+    row = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == message_id,
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ))
+    if row is None:
+        raise HTTPException(404, "message not found")
+    _require_conversation_member(session, workspace, row.conversation_id)
+    actor = _actor(workspace)
+    existing = session.scalar(select(CommunicationMessageReactionORM.id).where(
+        CommunicationMessageReactionORM.message_id == row.id,
+        CommunicationMessageReactionORM.user_id == actor,
+        CommunicationMessageReactionORM.reaction == reaction,
+    ))
+    if existing is None:
+        session.add(CommunicationMessageReactionORM(
+            id=uuid4(), message_id=row.id, user_id=actor, reaction=reaction,
+            created_at=datetime.now(UTC),
+        ))
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            if session.scalar(select(CommunicationMessageReactionORM.id).where(
+                CommunicationMessageReactionORM.message_id == message_id,
+                CommunicationMessageReactionORM.user_id == actor,
+                CommunicationMessageReactionORM.reaction == reaction,
+            )) is None:
+                raise
+    return _message_response(session, workspace, row)
+
+
+@router.delete("/messages/{message_id}/reactions/{reaction}", response_model=MessageResponse)
+def remove_reaction(
+    message_id: UUID,
+    reaction: ReactionKind,
+    session: Session = Depends(get_db),
+    workspace: WorkspaceContext = Depends(require_permission("communication.create")),
+) -> MessageResponse:
+    row = session.scalar(select(CommunicationMessageORM).where(
+        CommunicationMessageORM.id == message_id,
+        CommunicationMessageORM.workspace_id == workspace.workspace_id,
+        CommunicationMessageORM.deleted_at.is_(None),
+    ))
+    if row is None:
+        raise HTTPException(404, "message not found")
+    _require_conversation_member(session, workspace, row.conversation_id)
+    session.execute(delete(CommunicationMessageReactionORM).where(
+        CommunicationMessageReactionORM.message_id == row.id,
+        CommunicationMessageReactionORM.user_id == _actor(workspace),
+        CommunicationMessageReactionORM.reaction == reaction,
+    ))
+    session.commit()
+    return _message_response(session, workspace, row)
 
 
 @router.post("/messages/{message_id}/pin", response_model=MessageResponse)
@@ -1342,6 +1863,12 @@ def delete_message(
     ))
     session.execute(delete(CommunicationMessagePinORM).where(
         CommunicationMessagePinORM.message_id == row.id
+    ))
+    session.execute(delete(CommunicationMessageReactionORM).where(
+        CommunicationMessageReactionORM.message_id == row.id
+    ))
+    session.execute(delete(CommunicationSavedMessageORM).where(
+        CommunicationSavedMessageORM.message_id == row.id
     ))
     row.plaintext = "This message was deleted."
     row.body = {"version": 1, "type": "deleted"}

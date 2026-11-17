@@ -1442,6 +1442,75 @@ class CommunicationMessagePinORM(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class CommunicationDraftORM(Base):
+    __tablename__ = "communication_drafts"
+    __table_args__ = (
+        UniqueConstraint("conversation_id", "user_id", name="uq_communication_draft"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    conversation_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    body: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationPreferenceORM(Base):
+    __tablename__ = "communication_preferences"
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "user_id", name="uq_communication_preference"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    sound_enabled: Mapped[bool] = mapped_column(nullable=False, default=False)
+    muted_conversation_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+
+class CommunicationSavedMessageORM(Base):
+    __tablename__ = "communication_saved_messages"
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", name="uq_communication_saved_message"),
+        Index("ix_communication_saved_user", "user_id", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class CommunicationMessageReactionORM(Base):
+    __tablename__ = "communication_message_reactions"
+    __table_args__ = (
+        UniqueConstraint("message_id", "user_id", "reaction", name="uq_communication_reaction"),
+        Index("ix_communication_reactions_message", "message_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    message_id: Mapped[UUID] = mapped_column(
+        ForeignKey("communication_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    reaction: Mapped[str] = mapped_column(String(24), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class CommunicationNotificationORM(Base):
     __tablename__ = "communication_notifications"
     __table_args__ = (
@@ -1510,7 +1579,12 @@ class CommunicationReminderORM(Base):
 
 class CommunicationAttachmentORM(Base):
     __tablename__ = "communication_attachments"
-    __table_args__ = (Index("ix_communication_attachments_message", "message_id", "created_at"),)
+    __table_args__ = (
+        Index("ix_communication_attachments_message", "message_id", "created_at"),
+        UniqueConstraint(
+            "message_id", "client_upload_id", name="uq_communication_attachment_upload"
+        ),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     workspace_id: Mapped[UUID] = mapped_column(
@@ -1528,6 +1602,7 @@ class CommunicationAttachmentORM(Base):
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False)
     storage_key: Mapped[str] = mapped_column(String(512), nullable=False, unique=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    client_upload_id: Mapped[UUID | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 class LeadExportAuditEventORM(Base):

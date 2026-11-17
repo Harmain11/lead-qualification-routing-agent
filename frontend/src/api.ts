@@ -1396,11 +1396,12 @@ export const refreshCommunicationPresence = () =>
 
 export const uploadCommunicationAttachment = (
   messageId: string,
-  input: { file: File; kind: "file" | "voice"; duration_ms?: number },
+  input: { file: File; kind: "file" | "voice"; duration_ms?: number; upload_id: string },
 ) => {
   const form = new FormData();
   form.set("file", input.file);
   form.set("kind", input.kind);
+  form.set("client_upload_id", input.upload_id);
   if (input.duration_ms !== undefined) form.set("duration_ms", String(input.duration_ms));
   return request<CommunicationAttachment>(`/v1/communication/messages/${messageId}/attachments`, {
     method: "POST",
@@ -1422,6 +1423,53 @@ export const createCommunicationMessage = (conversationId: string, input: {
 
 export const pinCommunicationMessage = (messageId: string) =>
   jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}/pin`, { method: "POST" });
+
+export type CommunicationDraft = { text: string; mention_ids: string[]; lead_ids: string[]; attachment_names: string[] };
+export const getCommunicationDraft = (conversationId: string) =>
+  jsonRequest<CommunicationDraft>(`/v1/communication/conversations/${conversationId}/draft`, {}, { activityToast: false });
+export const saveCommunicationDraft = (conversationId: string, draft: CommunicationDraft) =>
+  jsonRequest<CommunicationDraft>(`/v1/communication/conversations/${conversationId}/draft`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft),
+  }, { activityToast: false });
+
+export const setCommunicationReaction = (messageId: string, reaction: string, selected: boolean) =>
+  jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}/reactions/${encodeURIComponent(reaction)}`, {
+    method: selected ? "PUT" : "DELETE",
+  }, { activityToast: false });
+
+export const listSavedCommunicationMessages = () =>
+  jsonRequest<CommunicationMessage[]>("/v1/communication/saved", {}, { activityToast: false });
+
+export type CommunicationPreferences = { sound_enabled: boolean; muted_conversation_ids: string[] };
+export const getCommunicationPreferences = () =>
+  jsonRequest<CommunicationPreferences>("/v1/communication/preferences", {}, { activityToast: false });
+export const setCommunicationSound = (enabled: boolean) =>
+  jsonRequest<CommunicationPreferences>(`/v1/communication/preferences/sound/${enabled}`, { method: "PUT" }, { activityToast: false });
+export const setCommunicationMute = (conversationId: string, muted: boolean) =>
+  jsonRequest<CommunicationPreferences>(`/v1/communication/conversations/${conversationId}/mute`, { method: muted ? "PUT" : "DELETE" }, { activityToast: false });
+
+export const listGoogleMeetConnections = () =>
+  jsonRequest<Array<{ id: string; name: string }>>("/v1/calendar/google-meet/connections", {}, { activityToast: false });
+export const createGoogleMeetEvent = (input: { request_id: string; connection_id: string; title: string; description: string; start_at: string; end_at: string; time_zone: string; attendees: string[] }) =>
+  jsonRequest<{ event_id: string; event_url: string | null; meet_url: string | null }>("/v1/calendar/google-meet/events", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input),
+  }, { activityToast: false });
+export const setSavedCommunicationMessage = (messageId: string, saved: boolean) =>
+  jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}/saved`, {
+    method: saved ? "PUT" : "DELETE",
+  }, { activityToast: false });
+
+export const forwardCommunicationMessage = (messageId: string, conversationId: string, requestId: string) =>
+  jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}/forward`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conversation_id: conversationId, request_id: requestId }),
+  }, { activityToast: false });
+
+export const updateCommunicationChecklist = (messageId: string, line: number, completed: boolean, expectedText: string) =>
+  jsonRequest<CommunicationMessage>(`/v1/communication/messages/${messageId}/checklist`, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ line, completed, expected_text: expectedText }),
+  }, { activityToast: false });
 
 export const createCommunicationTask = (messageId: string, input: { title: string; assignee_id: string; due_at: string | null }) =>
   jsonRequest<import("./types").CommunicationTask>(`/v1/communication/messages/${messageId}/tasks`, {

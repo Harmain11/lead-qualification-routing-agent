@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AssignmentNotification } from "../api";
+import { getCommunicationPreferences, listCommunicationNotifications, type AssignmentNotification } from "../api";
+import { playCommunicationSound } from "../communicationSound";
 import type { LeadDetailSection } from "../leadSections";
 import type { Lead } from "../types";
 
@@ -25,16 +26,23 @@ export function LeadNotificationCenter({
   assignmentNotifications,
   onOpenLead,
   onMarkAssignmentRead,
+  canViewCommunication,
+  workspaceId,
+  onOpenCommunication,
 }: {
   unseenLeadIds: string[];
   leads: Lead[];
   assignmentNotifications: AssignmentNotification[];
   onOpenLead: (leadId: string, section?: LeadDetailSection) => void;
   onMarkAssignmentRead: (notificationId: string) => void | Promise<void>;
+  canViewCommunication: boolean;
+  workspaceId: string;
+  onOpenCommunication: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [communicationUnread, setCommunicationUnread] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
-  const notificationCount = unseenLeadIds.length + assignmentNotifications.length;
+  const notificationCount = unseenLeadIds.length + assignmentNotifications.length + communicationUnread;
   const items = useMemo(() => {
     const byId = new Map(leads.map((lead) => [lead.id, lead]));
     return unseenLeadIds
@@ -43,6 +51,31 @@ export function LeadNotificationCenter({
         leadTimestamp(right.lead) - leadTimestamp(left.lead),
       );
   }, [leads, unseenLeadIds]);
+
+  useEffect(() => {
+    let active = true;
+    let initialized = false;
+    let known = new Set<string>();
+    let requestSequence = 0;
+    setCommunicationUnread(0);
+    if (!canViewCommunication || !workspaceId) return;
+    const refresh = () => {
+      const requestId = ++requestSequence;
+      void Promise.all([listCommunicationNotifications(), getCommunicationPreferences()]).then(([items, preferences]) => {
+      if (!active || requestId !== requestSequence) return;
+      const newUnread = initialized && items.some((item) => !item.read_at && !known.has(item.id));
+      known = new Set(items.map((item) => item.id));
+      initialized = true;
+      if (newUnread && preferences.sound_enabled) playCommunicationSound();
+      setCommunicationUnread(items.filter((item) => !item.read_at).length);
+      }).catch(() => undefined);
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 30_000);
+    document.addEventListener("visibilitychange", refresh);
+    window.addEventListener("communication-preferences-changed", refresh);
+    return () => { active = false; window.clearInterval(interval); document.removeEventListener("visibilitychange", refresh); window.removeEventListener("communication-preferences-changed", refresh); };
+  }, [canViewCommunication, workspaceId]);
 
   useEffect(() => {
     if (!open) return;
@@ -98,6 +131,7 @@ export function LeadNotificationCenter({
                 {assignmentNotifications.length} items need your attention
                 {" · "}
                 {unseenLeadIds.length} unopened leads
+                {communicationUnread > 0 && ` · ${communicationUnread} communication alerts`}
               </small>
             </div>
             <button
@@ -109,8 +143,9 @@ export function LeadNotificationCenter({
               ×
             </button>
           </header>
-          {items.length || assignmentNotifications.length ? (
+          {items.length || assignmentNotifications.length || communicationUnread ? (
             <ul>
+              {communicationUnread > 0 && <li><button type="button" className="lead-notification-item" onClick={() => { setOpen(false); onOpenCommunication(); }}><span className="lead-notification-dot" aria-hidden="true" /><span className="lead-notification-copy"><strong>Communication</strong><small>{communicationUnread} unread {communicationUnread === 1 ? "alert" : "alerts"}</small></span><span aria-hidden="true">›</span></button></li>}
               {assignmentNotifications.map((notification) => (
                 <li key={`assignment:${notification.id}`}>
                   <button

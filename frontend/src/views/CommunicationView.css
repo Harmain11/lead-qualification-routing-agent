@@ -58,10 +58,13 @@
 .message-pin, .message-tags span { padding: 3px 7px; border-radius: 6px; background: var(--surface-sunken); color: var(--tint-text); font-size: 12px; }
 .formatted-message { overflow-wrap: anywhere; line-height: 1.55; }
 .formatted-message p { margin: 4px 0; }
+.communication-inline-mention { color: var(--tint-text); font-weight: 700; }
 .message-thread-button { margin-top: 6px; border: 0; background: transparent; color: var(--tint-text); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
 .message-composer { margin: 0 22px 22px; border: 1px solid var(--separator-strong); border-radius: 12px; background: var(--surface); }
 .communication-view .message-composer textarea { display: block; box-sizing: border-box; width: 100%; min-height: 96px; resize: vertical; padding: 15px; border: 0; border-radius: 12px 12px 0 0; outline-offset: -3px; background: transparent; box-shadow: none; color: var(--label); font: inherit; line-height: 1.5; }
 .composer-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 10px; border-top: 1px solid var(--separator-strong); }
+.composer-format-preview { max-height: 160px; overflow-y: auto; padding: 10px 15px; border-top: 1px solid var(--separator-strong); color: var(--label); }
+.composer-format-preview > strong { display: block; margin-bottom: 6px; color: var(--label-2); font-size: 12px; }
 .formatting-tools { display: flex; gap: 2px; }
 .formatting-tools button { font-weight: 700; }
 .composer-tools details { position: relative; color: var(--label-2); font-size: 13px; }
@@ -71,10 +74,13 @@
 .composer-popover label { display: flex; align-items: center; gap: 8px; min-height: 38px; padding: 6px 8px; border-radius: 6px; overflow-wrap: anywhere; cursor: pointer; }
 .composer-popover label:hover { background: var(--surface-sunken); }
 .composer-popover p { margin: 8px; color: var(--label-2); }
+.composer-popover input[type="search"] { width: 100%; box-sizing: border-box; min-height: 40px; padding: 8px 10px; border: 1px solid var(--separator-strong); border-radius: 7px; background: var(--surface); color: var(--label); font: inherit; }
 .attachment-picker { display: inline-flex; align-items: center; padding: 8px; border-radius: 7px; color: var(--tint-text); font-size: 13px; font-weight: 700; cursor: pointer; }
 .attachment-picker input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .attachment-picker:focus-within { outline: 2px solid var(--tint); outline-offset: 2px; }
 .composer-selected { color: var(--label-2); font-size: 12px; overflow-wrap: anywhere; }
+.communication-pending-attachment { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; width: 100%; padding: 8px; border-radius: 8px; background: var(--surface-sunken); overflow-wrap: anywhere; }
+.communication-pending-attachment audio { max-width: 100%; }
 .composer-tools > .primary-button { margin-left: auto; }
 .communication-link-preview, .communication-lead-chip, .message-attachments a { display: inline-grid; gap: 4px; max-width: 100%; margin: 8px 8px 0 0; padding: 10px 12px; border: 1px solid var(--separator-strong); border-radius: 9px; background: var(--surface-sunken); color: var(--label); text-align: left; text-decoration: none; overflow-wrap: anywhere; }
 .communication-link-preview span, .communication-link-preview small, .communication-lead-chip small { color: var(--label-2); }
@@ -150,6 +156,10 @@
 .message-pin-button { min-width: 32px; min-height: 32px; }
 .message-thread-button { display: inline-flex; align-items: center; min-height: 34px; margin: 8px 6px 0 0; padding: 6px 9px; border: 1px solid var(--separator-strong); border-radius: 8px; background: var(--surface); line-height: 1.3; }
 .message-thread-button:hover { background: var(--surface-sunken); }
+.communication-reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.communication-reactions button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-width: 36px; min-height: 34px; padding: 5px 7px; border: 1px solid var(--separator-strong); border-radius: 8px; background: var(--surface); color: var(--label); cursor: pointer; }
+.communication-reactions button[aria-pressed="true"] { border-color: var(--tint); background: var(--tint-soft); }
+.communication-reactions button:disabled { cursor: default; }
 .communication-task { gap: 6px; max-width: 520px; margin: 12px 0 4px; padding: 12px 14px; border-radius: 10px; }
 .communication-task label { align-items: flex-start; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
 .communication-task input { flex: 0 0 auto; margin-top: 3px; accent-color: var(--tint); }

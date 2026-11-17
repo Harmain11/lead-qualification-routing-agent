@@ -1468,11 +1468,14 @@ function App() {
                   ]}
                 />
               )}
-              {(can(workspacePermissions, "leads.view") || can(workspacePermissions, "leads.edit")) && (
+              {(can(workspacePermissions, "leads.view") || can(workspacePermissions, "leads.edit") || can(workspacePermissions, "communication.view")) && (
                 <LeadNotificationCenter
                   unseenLeadIds={unseenLeadIds}
                   leads={notificationLeads}
                   assignmentNotifications={assignmentNotifications}
+                  canViewCommunication={can(workspacePermissions, "communication.view")}
+                  workspaceId={auth?.current_workspace_id || ""}
+                  onOpenCommunication={() => setView("communication")}
                   onOpenLead={(leadId, section) => {
                     if (!can(workspacePermissions, "leads.view")) return;
                     if (section) openLeadSection(leadId, section);

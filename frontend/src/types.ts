@@ -50,6 +50,8 @@ export type CommunicationMessage = {
   tasks: CommunicationTask[];
   is_pinned: boolean;
   seen_by: string[];
+  reactions: Array<{ reaction: string; count: number; mine: boolean }>;
+  is_saved: boolean;
   edited_at: string | null;
   deleted_at: string | null;
   created_at: string;

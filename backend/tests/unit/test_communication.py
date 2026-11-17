@@ -15,7 +15,10 @@ from sqlalchemy.pool import StaticPool
 from starlette.datastructures import Headers, UploadFile
 
 from lead_agent.api.routes.communication import (
+    ChecklistUpdateRequest,
     ConversationCreateRequest,
+    DraftRequest,
+    ForwardMessageRequest,
     MessageCreateRequest,
     MessageUpdateRequest,
     ProjectCreateRequest,
@@ -25,20 +28,34 @@ from lead_agent.api.routes.communication import (
     _link_preview,
     _preview_address,
     _safe_preview_url,
+    add_reaction,
     bootstrap,
+    communication_preferences,
     communication_presence,
     create_conversation,
     create_message,
     create_message_task,
     create_project,
     delete_message,
+    download_attachment,
+    forward_message,
+    get_draft,
     list_messages,
     list_notifications,
+    list_saved_messages,
     mark_conversation_read,
+    mute_conversation,
     pin_message,
+    remove_reaction,
+    save_draft,
+    save_message,
     search_messages,
+    set_communication_sound,
     summarize_conversation,
     summarize_thread,
+    unmute_conversation,
+    unsave_message,
+    update_checklist,
     update_message,
     update_message_task,
     upload_attachment,
@@ -49,6 +66,7 @@ from lead_agent.domain.workspaces import WorkspaceContext
 from lead_agent.infrastructure.db.base import Base
 from lead_agent.infrastructure.db.models import (
     AuthSessionORM,
+    CommunicationConversationMemberORM,
     CommunicationNotificationORM,
     CommunicationReminderORM,
     LeadORM,
@@ -266,6 +284,139 @@ def _seed(session: Session) -> tuple[WorkspaceORM, UserORM, UserORM, LeadORM]:
     return workspace, owner, teammate, lead
 
 
+def test_muted_channel_suppresses_message_alerts_but_not_mentions() -> None:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace, owner, teammate, _ = _seed(session)
+        owner_context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(owner.id), user_id=owner.id
+        )
+        teammate_context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id
+        )
+        channel = create_conversation(ConversationCreateRequest(
+            kind="channel", name="alerts", member_ids=[teammate.id],
+        ), session, owner_context)
+        assert set_communication_sound(True, session, teammate_context).sound_enabled
+        assert communication_preferences(session, teammate_context).sound_enabled
+        mute_conversation(channel.id, session, teammate_context)
+        create_message(channel.id, MessageCreateRequest(plaintext="Quiet"), session, owner_context)
+        assert list_notifications(session, teammate_context) == []
+        create_message(channel.id, MessageCreateRequest(
+            plaintext="@Teammate", mentioned_user_ids=[teammate.id],
+        ), session, owner_context)
+        assert [item.kind for item in list_notifications(session, teammate_context)] == ["mention"]
+        assert not unmute_conversation(channel.id, session, teammate_context).muted_conversation_ids
+
+
+def test_forward_copies_attachments_and_checks_both_conversations(monkeypatch) -> None:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace, owner, teammate, _ = _seed(session)
+        context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(owner.id), user_id=owner.id,
+            permissions=frozenset({"communication.attach"}),
+        )
+        source = create_conversation(ConversationCreateRequest(
+            kind="channel", name="source", member_ids=[teammate.id],
+        ), session, context)
+        target = create_conversation(ConversationCreateRequest(
+            kind="channel", name="target", member_ids=[teammate.id],
+        ), session, context)
+        message = create_message(
+            source.id, MessageCreateRequest(plaintext="Report"), session, context
+        )
+        monkeypatch.setattr(
+            "lead_agent.api.routes.communication.put_private_attachment", lambda key, *_: key
+        )
+        monkeypatch.setattr(
+            "lead_agent.api.routes.communication.get_private_attachment", lambda _: b"report"
+        )
+        upload_attachment(message.id, UploadFile(
+            BytesIO(b"report"), filename="report.pdf",
+            headers=Headers({"content-type": "application/pdf"}),
+        ), "file", None, session, context, Settings())
+        request = ForwardMessageRequest(conversation_id=target.id, request_id=uuid4())
+        forwarded = forward_message(message.id, request, session, context)
+        assert forwarded.conversation_id == target.id
+        assert [item.filename for item in forwarded.attachments] == ["report.pdf"]
+        assert forward_message(message.id, request, session, context).id == forwarded.id
+        private_target = create_conversation(ConversationCreateRequest(
+            kind="channel", name="not-owner", member_ids=[teammate.id],
+        ), session, context)
+        owner_member = session.scalar(select(CommunicationConversationMemberORM).where(
+            CommunicationConversationMemberORM.conversation_id == private_target.id,
+            CommunicationConversationMemberORM.user_id == owner.id,
+        ))
+        assert owner_member is not None
+        session.delete(owner_member)
+        session.commit()
+        with pytest.raises(HTTPException):
+            forward_message(message.id, ForwardMessageRequest(
+                conversation_id=private_target.id, request_id=uuid4(),
+            ), session, context)
+        outsider = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(uuid4()), user_id=uuid4()
+        )
+        with pytest.raises(HTTPException):
+            forward_message(message.id, request, session, outsider)
+
+
+def test_saved_messages_disappear_when_conversation_access_is_removed() -> None:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace, owner, teammate, _ = _seed(session)
+        owner_context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(owner.id), user_id=owner.id
+        )
+        teammate_context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id
+        )
+        conversation = create_conversation(ConversationCreateRequest(
+            kind="channel", name="private", member_ids=[teammate.id],
+        ), session, owner_context)
+        message = create_message(conversation.id, MessageCreateRequest(plaintext="Private"),
+                                 session, owner_context)
+        save_message(message.id, session, teammate_context)
+        assert len(list_saved_messages(session, teammate_context)) == 1
+        member = session.scalar(select(CommunicationConversationMemberORM).where(
+            CommunicationConversationMemberORM.conversation_id == conversation.id,
+            CommunicationConversationMemberORM.user_id == teammate.id,
+        ))
+        assert member is not None
+        session.delete(member)
+        session.commit()
+        assert list_saved_messages(session, teammate_context) == []
+
+
+def test_checklist_update_is_shared_and_rejects_stale_edits() -> None:
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        workspace, owner, teammate, _ = _seed(session)
+        context = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(owner.id), user_id=owner.id
+        )
+        other = WorkspaceContext(
+            workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id
+        )
+        conversation = create_conversation(ConversationCreateRequest(
+            kind="channel", name="checklist", member_ids=[teammate.id],
+        ), session, context)
+        message = create_message(conversation.id, MessageCreateRequest(
+            plaintext="- [ ] Verify lead", body={"type": "markdown", "text": "- [ ] Verify lead"},
+        ), session, context)
+        request = ChecklistUpdateRequest(line=0, completed=True, expected_text=message.plaintext)
+        updated = update_checklist(message.id, request, session, other)
+        assert updated.plaintext == "- [x] Verify lead"
+        with pytest.raises(HTTPException) as stale:
+            update_checklist(message.id, request, session, context)
+        assert stale.value.status_code == 409
+
+
 def test_presence_only_reports_recent_active_sessions_in_the_workspace() -> None:
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
@@ -348,6 +499,14 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
             context,
         )
         assert message.mentioned_user_ids == [teammate.id]
+        assert save_message(message.id, session, context).is_saved
+        assert [item.id for item in list_saved_messages(session, context)] == [message.id]
+        assert not unsave_message(message.id, session, context).is_saved
+        assert list_saved_messages(session, context) == []
+        reacted = add_reaction(message.id, "thumbs_up", session, context)
+        assert reacted.reactions[0].mine and reacted.reactions[0].count == 1
+        assert add_reaction(message.id, "thumbs_up", session, context).reactions[0].count == 1
+        assert remove_reaction(message.id, "thumbs_up", session, context).reactions == []
         assert message.leads[0].full_name == "Amina Noor"
         notification = session.scalar(select(CommunicationNotificationORM).where(
             CommunicationNotificationORM.message_id == message.id,
@@ -355,10 +514,20 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
             CommunicationNotificationORM.kind == "mention",
         ))
         assert notification is not None
+        assert session.scalar(select(CommunicationNotificationORM).where(
+            CommunicationNotificationORM.message_id == message.id,
+            CommunicationNotificationORM.recipient_id == teammate.id,
+            CommunicationNotificationORM.kind == "message",
+        )) is None
         teammate_context = WorkspaceContext(
             workspace_id=workspace.id, actor_id=str(teammate.id), user_id=teammate.id,
             role="sales_rep", permissions=frozenset({"communication.view"}),
         )
+        save_draft(conversation.id, DraftRequest(text="Owner draft"), session, context)
+        assert get_draft(conversation.id, session, context).text == "Owner draft"
+        assert get_draft(conversation.id, session, teammate_context).text == ""
+        save_draft(conversation.id, DraftRequest(text="Teammate draft"), session, teammate_context)
+        assert get_draft(conversation.id, session, context).text == "Owner draft"
         task = create_message_task(
             message.id, TaskCreateRequest(title="Review lead", assignee_id=teammate.id),
             session, context,
@@ -408,6 +577,13 @@ def test_communication_message_mentions_and_lead_references_are_workspace_scoped
         outsider = WorkspaceContext(
             workspace_id=workspace.id, actor_id=str(uuid4()), user_id=uuid4()
         )
+        with pytest.raises(HTTPException) as denied_reaction:
+            add_reaction(message.id, "heart", session, outsider)
+        assert denied_reaction.value.status_code == 404
+        with pytest.raises(HTTPException):
+            save_message(message.id, session, outsider)
+        with pytest.raises(HTTPException):
+            get_draft(conversation.id, session, outsider)
         with pytest.raises(HTTPException) as denied:
             mark_conversation_read(
                 conversation.id, ReadReceiptRequest(message_id=message.id), session, outsider
@@ -545,9 +721,10 @@ def test_voice_attachment_is_private_and_added_to_its_message(monkeypatch) -> No
         monkeypatch.setattr("lead_agent.api.routes.communication.put_private_attachment", store)
         file = UploadFile(
             BytesIO(b"voice-bytes"),
-            filename="voice.webm",
+            filename="صوت.webm",
             headers=Headers({"content-type": "audio/webm"}),
         )
+        upload_id = uuid4()
         attachment = upload_attachment(
             message.id,
             file,
@@ -556,12 +733,26 @@ def test_voice_attachment_is_private_and_added_to_its_message(monkeypatch) -> No
             session,
             context,
             Settings(),
+            upload_id,
         )
         assert attachment.kind == "voice"
         assert attachment.download_url.endswith(str(attachment.id))
         assert stored["key"].startswith(f"communication/{workspace.id}/{message.id}/")
+        retried = upload_attachment(
+            message.id, UploadFile(BytesIO(b"voice-bytes"), filename="صوت.webm",
+                                   headers=Headers({"content-type": "audio/webm"})),
+            "voice", 1_000, session, context, Settings(), upload_id,
+        )
+        assert retried.id == attachment.id
         messages = search_messages("Call", session, context)
-        assert messages[0].attachments[0].filename == "voice.webm"
+        assert messages[0].attachments[0].filename == "صوت.webm"
+        monkeypatch.setattr(
+            "lead_agent.api.routes.communication.get_private_attachment", lambda _: b"voice-bytes"
+        )
+        response = download_attachment(attachment.id, session, context, True)
+        assert response.body == b"voice-bytes"
+        assert response.headers["content-disposition"].startswith("attachment;")
+        assert "filename*=UTF-8''%D8" in response.headers["content-disposition"]
 
 
 def test_due_reminders_are_dispatched_once(monkeypatch) -> None:
@@ -615,7 +806,9 @@ def test_due_reminders_are_dispatched_once(monkeypatch) -> None:
         monkeypatch.setattr(worker, "get_session_factory", lambda: lambda: SessionContext())
         assert worker.dispatch_due_communication_reminders.run() == 1
         assert worker.dispatch_due_communication_reminders.run() == 0
-        notifications = list(session.scalars(select(CommunicationNotificationORM)))
+        notifications = list(session.scalars(select(CommunicationNotificationORM).where(
+            CommunicationNotificationORM.kind == "reminder"
+        )))
         assert len(notifications) == 1
         assert notifications[0].kind == "reminder"
 
